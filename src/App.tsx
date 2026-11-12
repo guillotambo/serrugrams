@@ -48,6 +48,11 @@ export function App() {
   const [createSignal, setCreateSignal] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    // Solo en desarrollo: acceso desde la consola para depurar.
+    if (import.meta.env.DEV) (window as any).__serrugrams = { excalidraw };
+  }, [excalidraw]);
+
   const current = nav.current?.path ?? null;
   const { comments, update: updateComments } = useComments(current);
   const entriesRef = useRef<TreeEntry[]>([]);
@@ -282,11 +287,13 @@ export function App() {
         setSidebarOpen((v) => !v);
       } else if (e.key === "Escape" && placing) {
         setPlacing(false);
+      } else if (e.key === "Escape" && activeComment && !palette && !exporting) {
+        setActiveComment(null);
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [goBack, goForward, placing]);
+  }, [goBack, goForward, placing, activeComment, palette, exporting]);
 
   const trail = nav.back.slice(-3);
   const hiddenTrail = nav.back.length - trail.length;
@@ -366,7 +373,8 @@ export function App() {
                 Comentar
               </button>
               <button className="btn ghost" data-on={panelOpen || undefined} title="Ver comentarios" onClick={() => setPanelOpen((v) => !v)}>
-                {openComments > 0 ? <span className="count">{openComments}</span> : "Comentarios"}
+                Comentarios
+                {openComments > 0 && <span className="count">{openComments}</span>}
               </button>
               <button className="btn ghost" title="Exportar" onClick={() => setExporting(true)}>
                 <Icon.export />

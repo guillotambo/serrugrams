@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "comments": [
+    {
+      "id": "i78ynl584d3d",
+      "anchor": {
+        "x": 240,
+        "y": 281
+      },
+      "author": "Guillo",
+      "createdAt": "2026-11-12T03:41:48.745Z",
+      "resolved": false,
+      "text": "Falta definir el timeout contra el proveedor",
+      "replies": []
+    }
+  ]
+}

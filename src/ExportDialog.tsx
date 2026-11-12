@@ -51,6 +51,32 @@ function commentElements(elements: readonly any[], comments: Comment[]): any[] {
   return convertToExcalidrawElements(skeleton as any, { regenerateIds: true }) as any[];
 }
 
+/** Arma el archivo a exportar. Devuelve null si no hay nada para exportar. */
+export async function buildExport(o: { format: Format; withComments: boolean; comments: Comment[]; dark: boolean; excalidraw: ExcalidrawImperativeAPI }): Promise<Blob | null> {
+  const elements = o.excalidraw.getSceneElements();
+  const appState = o.excalidraw.getAppState();
+  const files = o.excalidraw.getFiles();
+  if (o.format === "excalidraw") {
+    const data = JSON.parse(serializeAsJSON(elements, appState, files, "local"));
+    // Los comentarios viajan en una clave propia; Excalidraw la ignora y Serrugrams la reconoce al importar.
+    if (o.withComments && o.comments.length) data.serrugrams = { comments: o.comments };
+    return new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  }
+  const all = o.withComments ? [...elements, ...commentElements(elements, o.comments)] : [...elements];
+  if (all.length === 0) return null;
+  const opts = {
+    elements: all as any,
+    files,
+    appState: { ...appState, exportBackground: true, exportWithDarkMode: o.dark, exportEmbedScene: false },
+    exportPadding: 24,
+  };
+  if (o.format === "png") {
+    return exportToBlob({ ...opts, mimeType: "image/png", getDimensions: (w: number, h: number) => ({ width: w * 2, height: h * 2, scale: 2 }) });
+  }
+  const svg = await exportToSvg(opts);
+  return new Blob([svg.outerHTML], { type: "image/svg+xml" });
+}
+
 export function ExportDialog({ path, excalidraw, comments, theme, onClose }: Props) {
   const [format, setFormat] = useState<Format>(() => load("export.format", "png"));
   const [withComments, setWithComments] = useState<boolean>(() => load("export.comments", false));
@@ -66,33 +92,12 @@ export function ExportDialog({ path, excalidraw, comments, theme, onClose }: Pro
     store("export.format", format);
     store("export.comments", withComments);
     try {
-      const elements = excalidraw.getSceneElements();
-      const appState = excalidraw.getAppState();
-      const files = excalidraw.getFiles();
-      if (format === "excalidraw") {
-        const data = JSON.parse(serializeAsJSON(elements, appState, files, "local"));
-        // Los comentarios viajan en una clave propia; Excalidraw la ignora y Serrugrams la reconoce al importar.
-        if (withComments && selected.length) data.serrugrams = { comments: selected };
-        downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), `${name}.excalidraw`);
-      } else {
-        const all = withComments ? [...elements, ...commentElements(elements, selected)] : [...elements];
-        if (all.length === 0) {
-          toast("El diagrama está vacío, no hay nada para exportar", "error");
-          return;
-        }
-        const opts = {
-          elements: all as any,
-          files,
-          appState: { ...appState, exportBackground: true, exportWithDarkMode: dark, exportEmbedScene: false },
-          exportPadding: 24,
-        };
-        if (format === "png") {
-          downloadBlob(await exportToBlob({ ...opts, mimeType: "image/png", getDimensions: (w: number, h: number) => ({ width: w * 2, height: h * 2, scale: 2 }) }), `${name}.png`);
-        } else {
-          const svg = await exportToSvg(opts);
-          downloadBlob(new Blob([svg.outerHTML], { type: "image/svg+xml" }), `${name}.svg`);
-        }
+      const blob = await buildExport({ format, withComments, comments: selected, dark, excalidraw });
+      if (!blob) {
+        toast("El diagrama está vacío, no hay nada para exportar", "error");
+        return;
       }
+      downloadBlob(blob, `${name}.${format}`);
       onClose();
     } catch (err) {
       console.error(err);

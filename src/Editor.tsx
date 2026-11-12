@@ -53,6 +53,7 @@ export function Editor(props: Props) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const quietUntil = useRef(0);
   const alive = useRef(true);
+  const viewRef = useRef<View>({ scrollX: NaN, scrollY: NaN, zoom: NaN });
 
   // Carga inicial desde disco.
   useEffect(() => {
@@ -167,9 +168,11 @@ export function Editor(props: Props) {
     return () => {
       window.removeEventListener("beforeunload", flush);
       flush();
+      const st = apiRef.current?.getAppState();
+      if (st) viewMemory.set(path, { scrollX: st.scrollX, scrollY: st.scrollY, zoom: st.zoom.value });
       cb.current.onReady(null);
     };
-  }, [save]);
+  }, [save, path]);
 
   const handleApi = useCallback(
     (ex: ExcalidrawImperativeAPI) => {
@@ -177,6 +180,7 @@ export function Editor(props: Props) {
       cb.current.onReady(ex);
       ex.onScrollChange((scrollX, scrollY, zoom) => {
         const v = { scrollX, scrollY, zoom: zoom.value };
+        viewRef.current = v;
         viewMemory.set(path, v);
         cb.current.onView(v);
       });
@@ -234,6 +238,12 @@ export function Editor(props: Props) {
           if (sel !== lastSelection.current) {
             lastSelection.current = sel;
             cb.current.onSelection(sel ? sel.split(",") : []);
+          }
+          // onScrollChange no siempre avisa (p. ej. el centrado inicial): tomamos la vista también acá.
+          const v = viewRef.current;
+          if (v.scrollX !== appState.scrollX || v.scrollY !== appState.scrollY || v.zoom !== appState.zoom.value) {
+            viewRef.current = { scrollX: appState.scrollX, scrollY: appState.scrollY, zoom: appState.zoom.value };
+            cb.current.onView(viewRef.current);
           }
           cb.current.onSceneTick();
           const version = versionOf(elements, appState, files);
