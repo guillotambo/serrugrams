@@ -295,6 +295,17 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [goBack, goForward, placing, activeComment, palette, exporting]);
 
+  // Si dos diagramas se llaman igual (p. ej. "detalle"), se muestran con su carpeta para distinguirlos.
+  const label = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of entries ?? []) if (e.type === "file") counts.set(displayName(e.path), (counts.get(displayName(e.path)) ?? 0) + 1);
+    return (p: RelPath) => {
+      const name = displayName(p);
+      const dir = p.includes("/") ? p.split("/").slice(-2, -1)[0] : "";
+      return dir && (counts.get(name) ?? 0) > 1 ? `${dir}/${name}` : name;
+    };
+  }, [entries]);
+
   const trail = nav.back.slice(-3);
   const hiddenTrail = nav.back.length - trail.length;
 
@@ -333,14 +344,14 @@ export function App() {
             {trail.map((loc, i) => (
               <span key={loc.n} className="trail-part">
                 <button className="trail-item" title={`Volver a ${loc.path}`} onClick={() => goBack(trail.length - i)}>
-                  {displayName(loc.path)}
+                  {label(loc.path)}
                 </button>
                 <span className="trail-sep">›</span>
               </span>
             ))}
             {current && (
               <span className="trail-current" title={current}>
-                {displayName(current)}
+                {label(current)}
               </span>
             )}
           </div>

@@ -25,8 +25,8 @@
         "type": 3
       },
       "seed": 1822783271,
-      "version": 6,
-      "versionNonce": 1284899655,
+      "version": 7,
+      "versionNonce": 1218785594,
       "isDeleted": false,
       "boundElements": [
         {
@@ -34,8 +34,8 @@
           "id": "LDLcMb0L-mKdGlrC3arcO"
         }
       ],
-      "updated": 1794454845218,
-      "link": "/Detalle%20pagos.excalidraw",
+      "updated": 1794455066489,
+      "link": "/Pagos%20-%20detalle.excalidraw",
       "locked": false
     },
     {
@@ -74,6 +74,36 @@
       "originalText": "Pagos",
       "autoResize": true,
       "lineHeight": 1.25
+    },
+    {
+      "id": "ext-rect-1",
+      "type": "rectangle",
+      "x": 562,
+      "y": 296,
+      "width": 204,
+      "height": 102,
+      "angle": 0,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "#b2f2bb",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": null,
+      "roundness": {
+        "type": 3
+      },
+      "seed": 1822783271,
+      "version": 1,
+      "versionNonce": 12345,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1794454845218,
+      "link": null,
+      "locked": false
     }
   ],
   "appState": {

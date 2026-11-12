@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "serrugrams": {
+      "command": "node",
+      "args": ["server/mcp.ts", "--root", "examples"]
+    }
+  }
+}

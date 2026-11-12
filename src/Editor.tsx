@@ -165,6 +165,7 @@ export function Editor(props: Props) {
       if (dirty.current) save();
     };
     window.addEventListener("beforeunload", flush);
+    if (apiRef.current) cb.current.onReady(apiRef.current);
     return () => {
       window.removeEventListener("beforeunload", flush);
       flush();
@@ -202,6 +203,20 @@ export function Editor(props: Props) {
     ex.scrollToContent(el, { fitToViewport: true, viewportZoomFactor: 0.45, animate: true, duration: 300 });
     ex.updateScene({ appState: { selectedElementIds: { [focusId]: true } } as any, captureUpdate: CaptureUpdateAction.NEVER });
   }, [ready, focusKey]);
+
+  // Primera vez que se abre un diagrama: encuadrar todo el contenido sin agrandarlo de más.
+  const fitted = useRef(false);
+  useEffect(() => {
+    const ex = apiRef.current;
+    if (!ready || !ex || fitted.current) return;
+    fitted.current = true;
+    if (focusKey || viewMemory.has(path)) return;
+    const id = setTimeout(() => {
+      if (ex.getSceneElements().length) ex.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.7, maxZoom: 1, animate: false });
+    }, 50);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   if (!initial) return <div className="editor-loading" />;
 

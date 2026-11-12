@@ -116,6 +116,9 @@ kbd {
 .row-icon[data-open] svg { transform: rotate(90deg); }
 .row[data-active] .row-icon { color: var(--accent); }
 .row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-dir { flex-shrink: 1; min-width: 0; max-width: 50%; padding-right: 4px; color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connections .row-name { flex: 0 1 auto; }
+.connections .row-dir { flex: 1; text-align: right; }
 .row-more { width: 22px; height: 22px; opacity: 0; }
 .row:focus-within .row-more { opacity: 1; }
 @media (hover: hover) and (pointer: fine) {
@@ -216,7 +219,7 @@ kbd {
 .dialog-actions .btn { height: 32px; padding: 0 14px; }
 
 /* ---------- Comentarios sobre el lienzo ---------- */
-.pins { position: absolute; inset: 0; z-index: 4; pointer-events: none; overflow: hidden; }
+.pins { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
 .pin-wrap { position: absolute; left: 0; top: 0; width: 0; height: 0; }
 .pin {
   position: absolute; left: 0; bottom: 0; width: 28px; height: 28px; padding: 0; border: 0;

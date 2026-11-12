@@ -269,6 +269,7 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
                     <Icon.back />
                   </span>
                   <span className="row-name">{displayName(e.path)}</span>
+                  <span className="row-dir">{dirName(e.path)}</span>
                 </button>
               ))}
             </>
@@ -282,6 +283,7 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
                     <Icon.forward />
                   </span>
                   <span className="row-name">{displayName(p)}</span>
+                  <span className="row-dir">{dirName(p)}</span>
                 </button>
               ))}
             </>
