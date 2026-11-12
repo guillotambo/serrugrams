@@ -62,7 +62,7 @@ kbd {
 
 /* ---------- Estructura ---------- */
 .app { display: flex; height: 100%; }
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; container-type: inline-size; }
 .canvas { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .editor, .editor-loading { position: absolute; inset: 0; }
 
@@ -151,7 +151,7 @@ kbd {
 }
 @media (hover: hover) and (pointer: fine) { .trail-item:hover { background: var(--hover); color: var(--text); } }
 .trail-sep { color: var(--text-3); flex-shrink: 0; }
-.trail-current { padding: 3px 6px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 40px; }
+.trail-current { padding: 3px 6px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 40px; flex-shrink: 0.2; }
 .status { flex-shrink: 0; padding: 0 8px; font-size: 12px; color: var(--text-3); white-space: nowrap; }
 .status[data-status="error"] { color: var(--danger); }
 .count {
@@ -164,6 +164,18 @@ kbd {
 .chip-x:last-child { border-radius: 0 6px 6px 0; }
 .chip-x svg { width: 14px; height: 14px; }
 @media (hover: hover) and (pointer: fine) { .chip-main:hover, .chip-x:hover { background: var(--accent-soft); opacity: 1; } }
+
+.anchor { position: relative; display: inline-flex; flex-shrink: 0; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.meta { position: absolute; top: 34px; right: 0; z-index: 40; width: 300px; padding: 12px; display: grid; gap: 8px; transform-origin: top right; }
+.meta-hint { color: var(--text-2); font-size: 12px; line-height: 1.45; margin-bottom: 2px; }
+.meta-row { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 8px; color: var(--text-2); }
+
+/* Con poco ancho, los botones quedan solo con ícono para no tapar el recorrido. */
+@container (max-width: 900px) {
+  .topbar .btn .lbl, .topbar .status { display: none; }
+  .topbar .btn { padding: 0 7px; }
+}
 
 /* ---------- Estado vacío ---------- */
 .welcome { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center; }

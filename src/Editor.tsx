@@ -200,8 +200,11 @@ export function Editor(props: Props) {
     if (!ready || !ex || !focusId) return;
     const el = ex.getSceneElements().find((e) => e.id === focusId);
     if (!el) return;
-    ex.scrollToContent(el, { fitToViewport: true, viewportZoomFactor: 0.45, animate: true, duration: 300 });
-    ex.updateScene({ appState: { selectedElementIds: { [focusId]: true } } as any, captureUpdate: CaptureUpdateAction.NEVER });
+    const id = setTimeout(() => {
+      ex.updateScene({ appState: { selectedElementIds: { [focusId]: true } } as any, captureUpdate: CaptureUpdateAction.NEVER });
+      ex.scrollToContent(el, { fitToViewport: true, viewportZoomFactor: 0.45, maxZoom: 1, animate: true, duration: 300 });
+    }, 80);
+    return () => clearTimeout(id);
   }, [ready, focusKey]);
 
   // Primera vez que se abre un diagrama: encuadrar todo el contenido sin agrandarlo de más.

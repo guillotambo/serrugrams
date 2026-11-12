@@ -8,6 +8,7 @@ import { CommentPins, CommentsPanel, anchorAt, anchorForElement, anchorPoint, us
 import { Editor, type SaveStatus } from "./Editor.tsx";
 import { ExportDialog } from "./ExportDialog.tsx";
 import { Icon } from "./icons.tsx";
+import { MetaPopover, META_FIELDS } from "./MetaPopover.tsx";
 import { Palette } from "./Palette.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { displayName, joinPath, load, sanitizeName, store } from "./util.ts";
@@ -40,6 +41,7 @@ export function App() {
   const [panelOpen, setPanelOpen] = useState<boolean>(() => load("panel", false));
   const [palette, setPalette] = useState<"open" | "link" | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [metaOpen, setMetaOpen] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [activeComment, setActiveComment] = useState<string | null>(null);
@@ -186,6 +188,20 @@ export function App() {
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
   };
+
+  const metaTarget = selectedElements.length === 1 && !["arrow", "line", "text", "freedraw"].includes(selectedElements[0].type) ? selectedElements[0] : null;
+  const metaData = ((metaTarget as any)?.customData ?? {}) as Record<string, unknown>;
+  const metaCount = META_FIELDS.filter((f) => metaData[f.key]).length;
+  const setMeta = (customData: Record<string, unknown>) => {
+    if (!excalidraw || !metaTarget) return;
+    excalidraw.updateScene({
+      elements: excalidraw.getSceneElementsIncludingDeleted().map((el) => (el.id === metaTarget.id ? newElementWith(el, { customData: Object.keys(customData).length ? customData : undefined } as any) : el)),
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+  };
+  useEffect(() => {
+    if (!metaTarget) setMetaOpen(false);
+  }, [metaTarget]);
 
   const onPalettePick = async (path: RelPath, created: boolean) => {
     const mode = palette;
@@ -376,20 +392,31 @@ export function App() {
               ) : (
                 <button className="btn ghost" disabled={selection.length === 0} title={selection.length ? "Linkear lo seleccionado a otro diagrama" : "Seleccioná un elemento para linkearlo a otro diagrama"} onClick={() => setPalette("link")}>
                   <Icon.link />
-                  Linkear
+                  <span className="lbl">Linkear</span>
                 </button>
+              )}
+              {metaTarget && (
+                <span className="anchor">
+                  <button className="btn ghost" data-on={metaOpen || undefined} title="Servicio, repo y equipo de este elemento" onClick={() => setMetaOpen((v) => !v)}>
+                    <Icon.tag />
+                    <span className="lbl">Datos</span>
+                    {metaCount > 0 && <span className="dot" />}
+                  </button>
+                  {metaOpen && <MetaPopover elementId={metaTarget.id} data={metaData} onChange={setMeta} onClose={() => setMetaOpen(false)} />}
+                </span>
               )}
               <button className="btn ghost" data-on={placing || undefined} title={selectedElements.length === 1 ? "Comentar el elemento seleccionado" : "Agregar un comentario: hacé clic en cualquier lugar del diagrama"} onClick={startComment}>
                 <Icon.comment />
-                Comentar
+                <span className="lbl">Comentar</span>
               </button>
               <button className="btn ghost" data-on={panelOpen || undefined} title="Ver comentarios" onClick={() => setPanelOpen((v) => !v)}>
-                Comentarios
+                <Icon.panel />
+                <span className="lbl">Comentarios</span>
                 {openComments > 0 && <span className="count">{openComments}</span>}
               </button>
               <button className="btn ghost" title="Exportar" onClick={() => setExporting(true)}>
                 <Icon.export />
-                Exportar
+                <span className="lbl">Exportar</span>
               </button>
             </>
           )}
