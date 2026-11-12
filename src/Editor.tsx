@@ -53,6 +53,7 @@ export function Editor(props: Props) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const quietUntil = useRef(0);
   const alive = useRef(true);
+  const latest = useRef<{ elements: readonly any[]; appState: any; files: any } | null>(null);
   const viewRef = useRef<View>({ scrollX: NaN, scrollY: NaN, zoom: NaN });
 
   // Carga inicial desde disco.
@@ -111,7 +112,11 @@ export function Editor(props: Props) {
     dirty.current = false;
     cb.current.onStatus("saving");
     try {
-      const content = JSON.parse(serializeAsJSON(ex.getSceneElements(), ex.getAppState(), ex.getFiles(), "local"));
+      // Se guarda desde la última escena vista en onChange: al desmontar, la API puede estar ya vacía.
+      const snap = latest.current;
+      const content = snap
+        ? JSON.parse(serializeAsJSON(snap.elements.filter((e: any) => !e.isDeleted), snap.appState, snap.files, "local"))
+        : JSON.parse(serializeAsJSON(ex.getSceneElements(), ex.getAppState(), ex.getFiles(), "local"));
       content.source = "serrugrams";
       const { hash } = await api.saveFile(path, content, lastHash.current);
       lastHash.current = hash;
@@ -264,6 +269,7 @@ export function Editor(props: Props) {
             cb.current.onView(viewRef.current);
           }
           cb.current.onSceneTick();
+          latest.current = { elements, appState, files };
           const version = versionOf(elements, appState, files);
           if (lastVersion.current === null) {
             lastVersion.current = version;

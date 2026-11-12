@@ -2,18 +2,18 @@
   "version": 1,
   "comments": [
     {
-      "id": "piojd0V1n21z_g",
+      "id": "a-GFmZggAuXWLw",
       "anchor": {
         "elementId": "adaptador",
         "offset": {
           "x": 340,
           "y": 0
         },
-        "x": 473,
+        "x": 500,
         "y": 340
       },
       "author": "agente",
-      "createdAt": "2026-11-12T03:45:34.148Z",
+      "createdAt": "2026-11-12T03:52:32.963Z",
       "resolved": false,
       "text": "Falta definir el timeout y los reintentos contra el procesador.",
       "replies": []
