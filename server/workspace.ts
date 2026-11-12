@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import {
-  COMMENTS_SUFFIX, DIAGRAM_EXT, emptyDiagram, parseDiagramLink,
+  COMMENTS_SUFFIX, DIAGRAM_EXT, emptyDiagram, makeDiagramLink, parseDiagramLink,
   type CommentsFile, type ExcalidrawFile, type RelPath, type TreeEntry,
 } from "../shared/types.ts";
 
@@ -219,6 +219,36 @@ export class Workspace {
       try {
         await fs.rename(src + COMMENTS_SUFFIX, dst + COMMENTS_SUFFIX);
       } catch {}
+    }
+    await this.rewriteLinks(from, to, stat.isDirectory());
+  }
+
+  /** Tras un rename, actualiza los links de los demás diagramas que apuntaban a la ruta vieja. */
+  private async rewriteLinks(from: RelPath, to: RelPath, isDir: boolean): Promise<void> {
+    const map = (p: RelPath): RelPath | null => {
+      if (!isDir) return p === from ? to : null;
+      return p.startsWith(from + "/") ? to + p.slice(from.length) : null;
+    };
+    for (const entry of await this.tree()) {
+      if (entry.type !== "file") continue;
+      if (!entry.links?.some((l) => map(l) !== null)) continue;
+      const { content, hash } = await this.readDiagram(entry.path);
+      let changed = false;
+      for (const el of content.elements) {
+        const parsed = parseDiagramLink(el.link);
+        const next = parsed && map(parsed.path);
+        if (!next) continue;
+        el.link = makeDiagramLink(next, parsed!.elementId);
+        el.version = (el.version ?? 1) + 1;
+        el.versionNonce = Math.floor(Math.random() * 2 ** 31);
+        el.updated = Date.now();
+        changed = true;
+      }
+      if (changed) {
+        try {
+          await this.writeDiagram(entry.path, content, { baseHash: hash });
+        } catch {}
+      }
     }
   }
 
