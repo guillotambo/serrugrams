@@ -10,6 +10,7 @@ import { ExportDialog } from "./ExportDialog.tsx";
 import { Icon } from "./icons.tsx";
 import { MetaPopover, META_FIELDS } from "./MetaPopover.tsx";
 import { Palette } from "./Palette.tsx";
+import { Tooltips } from "./Tooltip.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { displayName, joinPath, load, sanitizeName, store } from "./util.ts";
 import { useViewStore, viewStore } from "./viewStore.ts";
@@ -56,6 +57,8 @@ export function App() {
   }, [excalidraw]);
 
   const current = nav.current?.path ?? null;
+  const currentRef = useRef(current);
+  currentRef.current = current;
   const { comments, update: updateComments } = useComments(current);
   const entriesRef = useRef<TreeEntry[]>([]);
   entriesRef.current = entries ?? [];
@@ -152,6 +155,19 @@ export function App() {
     const candidate = [fromHash, load<string>("last", "")].find((p) => p && entries.some((e) => e.path === p && e.type === "file"));
     if (candidate) navigate(candidate);
   }, [entries, navigate]);
+
+  // Pegar o editar la URL a mano también navega (replaceState no dispara hashchange, así que no hay bucle).
+  useEffect(() => {
+    const onHash = () => {
+      let path = "";
+      try {
+        path = decodeURI(location.hash.replace(/^#\//, ""));
+      } catch {}
+      if (path && path !== currentRef.current) navigate(path);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [navigate]);
 
   // Si el diagrama actual desaparece del disco, volver al estado vacío.
   useEffect(() => {
@@ -501,6 +517,7 @@ export function App() {
       {palette && <Palette mode={palette} entries={entries ?? []} current={current} recent={recent} onPick={onPalettePick} onClose={() => setPalette(null)} />}
       {exporting && current && excalidraw && <ExportDialog path={current} excalidraw={excalidraw} comments={comments} theme={theme} onClose={() => setExporting(false)} />}
       <Toasts />
+      <Tooltips />
     </div>
   );
 }

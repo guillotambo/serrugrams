@@ -220,7 +220,7 @@ export function Editor(props: Props) {
     fitted.current = true;
     if (focusKey || viewMemory.has(path)) return;
     const id = setTimeout(() => {
-      if (ex.getSceneElements().length) ex.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.7, maxZoom: 1, animate: false });
+      if (ex.getSceneElements().length) ex.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.85, maxZoom: 1, animate: false });
     }, 50);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
