@@ -225,6 +225,9 @@ test("updateElement: label, mover (re-rutea flechas y labels), colores, link, cu
   const text = r.find((e) => e.containerId === "api")!;
   assert.equal(text.originalText, "API Gateway v2 con un nombre bastante largo");
   assert.ok(text.width <= api.width && text.height <= api.height, "el contenedor creció para el label");
+  assert.ok(api.width > before.width, "el label largo agranda el nodo");
+  // Si el patch fija x/y, el nodo queda ahí aunque crezca por el label.
+  assert.deepEqual([api.x, api.y], [before.x + 300, before.y + 200]);
   // El label quedó centrado en el nodo.
   assert.ok(Math.abs(text.x + text.width / 2 - (api.x + api.width / 2)) < 1);
   for (const a0 of arrowsBefore) {

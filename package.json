@@ -8,6 +8,8 @@
     "serrugrams": "./bin/serrugrams.js"
   },
   "scripts": {
+    "postinstall": "node scripts/copy-fonts.mjs",
+    "fonts": "node scripts/copy-fonts.mjs",
     "dev": "concurrently -k -n server,web \"node --watch server/index.ts --dev\" \"vite\"",
     "build": "vite build",
     "start": "node server/index.ts",

@@ -199,26 +199,50 @@ export function Editor(props: Props) {
   // Enfocar un elemento cuando se llega por un link con #id.
   const focusKey = props.focusElementId; // "<elementId>#<n>": el sufijo fuerza re-enfocar
   const focusId = focusKey?.split("#")[0];
-  const [ready, setReady] = useState(false);
+  const [apiReady, setReady] = useState(false);
+  // Sin tamaño (pestaña o panel oculto al montar) el encuadre se calcula contra 0 px y queda
+  // al zoom mínimo: se espera a que el editor mida algo.
+  const [sized, setSized] = useState(false);
+  const observer = useRef<ResizeObserver | null>(null);
+  const editorRef = useCallback((node: HTMLDivElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (!node) return;
+    // Medición directa primero: en una pestaña en segundo plano el observer no avisa hasta que se pinta.
+    // Una vez que midió algo no vuelve a false: si no, al ocultarse y reaparecer re-enfocaría el link.
+    const measure = () => {
+      if (node.clientWidth <= 0 || node.clientHeight <= 0) return false;
+      setSized(true);
+      observer.current?.disconnect();
+      return true;
+    };
+    if (measure()) return;
+    observer.current = new ResizeObserver(measure);
+    observer.current.observe(node);
+  }, []);
+  const ready = apiReady && sized;
   useEffect(() => {
     const ex = apiRef.current;
     if (!ready || !ex || !focusId) return;
-    const el = ex.getSceneElements().find((e) => e.id === focusId);
-    if (!el) return;
     const id = setTimeout(() => {
+      const el = ex.getSceneElements().find((e) => e.id === focusId);
+      if (!el) return;
+      const animate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       ex.updateScene({ appState: { selectedElementIds: { [focusId]: true } } as any, captureUpdate: CaptureUpdateAction.NEVER });
-      ex.scrollToContent(el, { fitToViewport: true, viewportZoomFactor: 0.45, maxZoom: 1, animate: true, duration: 300 });
+      ex.scrollToContent(el, { fitToViewport: true, viewportZoomFactor: 0.45, maxZoom: 1, animate, duration: 300 });
     }, 80);
     return () => clearTimeout(id);
   }, [ready, focusKey]);
 
   // Primera vez que se abre un diagrama: encuadrar todo el contenido sin agrandarlo de más.
   const fitted = useRef(false);
+  // Se mira al montar: después, el propio Excalidraw ya anotó su vista inicial en viewMemory.
+  const hadMemory = useRef(viewMemory.has(path));
   useEffect(() => {
     const ex = apiRef.current;
     if (!ready || !ex || fitted.current) return;
     fitted.current = true;
-    if (focusKey || viewMemory.has(path)) return;
+    if (focusKey || hadMemory.current) return;
     const id = setTimeout(() => {
       if (ex.getSceneElements().length) ex.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.85, maxZoom: 1, animate: false });
     }, 50);
@@ -230,7 +254,7 @@ export function Editor(props: Props) {
 
   const remembered = focusId ? undefined : viewMemory.get(path);
   return (
-    <div className="editor">
+    <div className="editor" ref={editorRef}>
       <Excalidraw
         excalidrawAPI={(ex) => {
           handleApi(ex);

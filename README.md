@@ -55,7 +55,10 @@ El servidor escucha solo en `127.0.0.1`, rechaza pedidos con `Host` u `Origin` q
 ## Estado y pendientes conocidos
 
 - Probado en el navegador: crear, dibujar, autoguardado, links y navegación, renombrar con reescritura de links, comentarios, exportar e importar con comentarios, y ediciones por MCP con el diagrama abierto.
-- El MCP se probó con el cliente oficial del SDK, todavía no desde Claude Code, Codex o Cursor reales.
+- El MCP se probó con el cliente oficial del SDK y desde Claude Code real (las 12 herramientas, con el `.mcp.json` del repo y la app abierta); todavía no desde Codex o Cursor.
+- Las fuentes de Excalidraw se copian solas a `public/fonts` en `pnpm install` (`scripts/copy-fonts.mjs`; a mano: `pnpm fonts`).
+- `prefers-reduced-motion` está revisado por código (CSS y el desplazamiento al llegar por link), no con el ajuste del sistema activado.
+- La URL guarda el diagrama pero no el elemento: `#elementId` solo se enfoca al llegar por un link, no al pegar la URL.
 - Los comentarios no tienen control de concurrencia: si dos procesos los editan a la vez, gana el último.
 - `bin/serrugrams.js` funciona desde el repo clonado; para publicarlo como paquete npm hay que compilar el servidor a JavaScript.
 - Colaboración en la nube y edición en vivo entre personas: no implementado.

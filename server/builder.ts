@@ -665,8 +665,9 @@ export function updateElement(elements: El[], id: string, patch: ElementPatch): 
           const c = center(el);
           el.width = Math.max(el.width, need.width);
           el.height = Math.max(el.height, need.height);
-          el.x = r2(c.x - el.width / 2);
-          el.y = r2(c.y - el.height / 2);
+          // Crece desde el centro, salvo en el eje que el mismo patch fijó con x/y.
+          if (patch.x == null) el.x = r2(c.x - el.width / 2);
+          if (patch.y == null) el.y = r2(c.y - el.height / 2);
           geometryChanged = true;
           resized = true;
         }
