@@ -95,14 +95,36 @@ interface PinsProps {
 
 export function CommentPins({ excalidraw, comments, view, tick, showResolved, activeId, draft, onActive, onDraft, update }: PinsProps) {
   void tick;
+  // Tamaño del lienzo: decide de qué lado del pin entra el hilo sin cortarse.
+  const box = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [!excalidraw]);
   if (!excalidraw) return null;
+  const sideOf = (pos: { left: number; top: number }, height: number) => {
+    const right = size.w - pos.left - THREAD_GAP - THREAD_W;
+    const left = pos.left - 10 - THREAD_W;
+    const below = size.h - pos.top + 30;
+    const above = pos.top;
+    return {
+      "data-side": !size.w || right >= 8 || right >= left ? "right" : "left",
+      "data-v": !size.h || below >= height + 8 || below >= above ? "down" : "up",
+    } as const;
+  };
   const elements = new Map<string, any>(excalidraw.getSceneElements().map((e) => [e.id, e]));
   const toScreen = (p: { x: number; y: number }) => ({ left: (p.x + view.scrollX) * view.zoom, top: (p.y + view.scrollY) * view.zoom });
   const visible = comments.filter((c) => showResolved || !c.resolved || c.id === activeId);
   const numbers = new Map(comments.map((c, i) => [c.id, i + 1]));
 
   return (
-    <div className="pins">
+    <div className="pins" ref={box}>
       {visible.map((c) => {
         const pos = toScreen(anchorPoint(c, elements));
         const active = c.id === activeId;
@@ -120,7 +142,7 @@ export function CommentPins({ excalidraw, comments, view, tick, showResolved, ac
             >
               <span>{numbers.get(c.id)}</span>
             </button>
-            {active && <Thread comment={c} update={update} onClose={() => onActive(null)} />}
+            {active && <Thread comment={c} update={update} onClose={() => onActive(null)} side={sideOf(pos, 380)} />}
           </div>
         );
       })}
@@ -129,7 +151,7 @@ export function CommentPins({ excalidraw, comments, view, tick, showResolved, ac
           <div className="pin" data-active data-draft>
             <span>+</span>
           </div>
-          <div className="thread popover">
+          <div className="thread popover" {...sideOf(toScreen(anchorPoint(draft, elements)), 170)}>
             <Composer
               placeholder="Escribí un comentario…"
               submitLabel="Comentar"
@@ -149,10 +171,13 @@ export function CommentPins({ excalidraw, comments, view, tick, showResolved, ac
   );
 }
 
-function Thread({ comment, update, onClose }: { comment: Comment; update: PinsProps["update"]; onClose: () => void }) {
+const THREAD_W = 280;
+const THREAD_GAP = 38;
+
+function Thread({ comment, update, onClose, side }: { comment: Comment; update: PinsProps["update"]; onClose: () => void; side: Record<string, string> }) {
   const patch = (fn: (c: Comment) => Comment) => update((list) => list.map((c) => (c.id === comment.id ? fn(c) : c)));
   return (
-    <div className="thread popover" onKeyDown={(e) => e.key === "Escape" && onClose()}>
+    <div className="thread popover" {...side} onKeyDown={(e) => e.key === "Escape" && onClose()}>
       <div className="thread-head">
         <span className="thread-title">{comment.resolved ? "Resuelto" : "Comentario"}</span>
         <button className="icon-btn" title={comment.resolved ? "Reabrir" : "Marcar como resuelto"} onClick={() => patch((c) => ({ ...c, resolved: !c.resolved }))}>

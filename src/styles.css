@@ -246,6 +246,10 @@ kbd {
 .pin[data-active] { transform: scale(1.12); }
 .pin:active { transform: scale(0.97); }
 .thread { position: absolute; left: 38px; top: -30px; width: 280px; pointer-events: auto; transform-origin: top left; overflow: hidden; }
+/* Cerca de un borde, el hilo se abre hacia el lado que tiene lugar (y crece desde el pin). */
+.thread[data-side="left"] { left: auto; right: 10px; transform-origin: top right; }
+.thread[data-v="up"] { top: auto; bottom: 0; transform-origin: bottom left; }
+.thread[data-side="left"][data-v="up"] { transform-origin: bottom right; }
 .thread-head { display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--border); }
 .thread-title { flex: 1; font-weight: 600; color: var(--text-2); font-size: 12px; }
 .thread-head .icon-btn { width: 24px; height: 24px; }
