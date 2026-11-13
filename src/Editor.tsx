@@ -12,6 +12,7 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { makeDiagramLink, parseDiagramLink, type ExcalidrawFile, type RelPath } from "../shared/types.ts";
 import { api, ApiError } from "./api.ts";
 import { bus, toast } from "./bus.ts";
+import { READ_ONLY } from "./mode.ts";
 import { displayName } from "./util.ts";
 import { useViewStore } from "./viewStore.ts";
 
@@ -163,7 +164,7 @@ export function Editor(props: Props) {
 
   const save = useCallback(async () => {
     const ex = apiRef.current;
-    if (!ex || saving.current) return;
+    if (READ_ONLY || !ex || saving.current) return;
     saving.current = true;
     dirty.current = false;
     cb.current.onStatus("saving");
@@ -186,6 +187,13 @@ export function Editor(props: Props) {
         } catch {
           cb.current.onStatus("error");
         }
+      } else if (err instanceof ApiError && err.status === 413) {
+        // Demasiado grande para la nube (imágenes pesadas): reintentar no sirve, se avisa y se espera otro cambio.
+        dirty.current = true;
+        cb.current.onStatus("error");
+        toast("El diagrama es demasiado grande para guardarlo en la nube. Sacá o achicá imágenes.", "error");
+        saving.current = false;
+        return;
       } else {
         dirty.current = true;
         cb.current.onStatus("error");
@@ -201,6 +209,7 @@ export function Editor(props: Props) {
 
   const schedule = useCallback(
     (ms = 500) => {
+      if (READ_ONLY) return;
       dirty.current = true;
       cb.current.onStatus("dirty");
       if (timer.current) clearTimeout(timer.current);
@@ -340,6 +349,7 @@ export function Editor(props: Props) {
           scrollToContent: !remembered,
         }}
         theme={theme}
+        viewModeEnabled={READ_ONLY || undefined}
         name={displayName(path)}
         langCode="es-ES"
         UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: false, toggleTheme: false, saveAsImage: false } }}
@@ -378,8 +388,8 @@ export function Editor(props: Props) {
         <MainMenu>
           <MainMenu.Item onSelect={() => cb.current.onExport()}>Exportar…</MainMenu.Item>
           <MainMenu.DefaultItems.SearchMenu />
-          <MainMenu.DefaultItems.ClearCanvas />
-          <MainMenu.DefaultItems.ChangeCanvasBackground />
+          {!READ_ONLY && <MainMenu.DefaultItems.ClearCanvas />}
+          {!READ_ONLY && <MainMenu.DefaultItems.ChangeCanvasBackground />}
           <MainMenu.Separator />
           <MainMenu.DefaultItems.Help />
         </MainMenu>

@@ -1,8 +1,15 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { RefInfo } from "../shared/types.ts";
 import { api, ApiError } from "./api.ts";
+import { Icon } from "./icons.tsx";
 
-/** Campo para sumar a la vista una carpeta o un diagrama de cualquier repo, con autocompletado de rutas. */
+/** Si el servidor puede abrir el selector nativo (macOS). Se pregunta una vez por carga de página. */
+let canPick: Promise<boolean> | null = null;
+
+/**
+ * Campo para sumar a la vista una carpeta o un diagrama de cualquier repo, con autocompletado de rutas y, donde se puede,
+ * un botón que abre el selector de Finder (el navegador no da la ruta de un archivo; lo abre el servidor).
+ */
 export function AddRef({ onAdded, onCancel, compact }: { onAdded: (ref: RefInfo) => void; onCancel?: () => void; compact?: boolean }) {
   const [value, setValue] = useState("");
   const [items, setItems] = useState<string[]>([]);
@@ -10,7 +17,19 @@ export function AddRef({ onAdded, onCancel, compact }: { onAdded: (ref: RefInfo)
   const [itemsFor, setItemsFor] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [picker, setPicker] = useState(false);
+  const [picking, setPicking] = useState(false);
   const listId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    canPick ??= api.canPick().then((r) => r.available, () => false);
+    let alive = true;
+    canPick.then((ok) => alive && setPicker(ok));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -30,8 +49,8 @@ export function AddRef({ onAdded, onCancel, compact }: { onAdded: (ref: RefInfo)
     };
   }, [value]);
 
-  const submit = async () => {
-    const path = value.trim();
+  const submit = async (picked?: string) => {
+    const path = (picked ?? value).trim();
     if (!path) {
       setError("Escribí la ruta de una carpeta o de un diagrama");
       return;
@@ -44,6 +63,23 @@ export function AddRef({ onAdded, onCancel, compact }: { onAdded: (ref: RefInfo)
       setError(err instanceof ApiError ? err.message : "No se pudo agregar");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const pick = async () => {
+    setPicking(true);
+    setError("");
+    try {
+      const { path } = await api.pick(value);
+      if (path) {
+        setValue(path);
+        await submit(path);
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo abrir el selector");
+    } finally {
+      setPicking(false);
+      inputRef.current?.focus();
     }
   };
 
@@ -83,25 +119,33 @@ export function AddRef({ onAdded, onCancel, compact }: { onAdded: (ref: RefInfo)
         submit();
       }}
     >
-      <input
-        className="input"
-        autoFocus
-        list={listId}
-        value={value}
-        placeholder="~/repos/mi-repo/docs/diagramas"
-        spellCheck={false}
-        aria-label="Ruta de una carpeta o de un diagrama"
-        aria-invalid={!!error || undefined}
-        onChange={(e) => {
-          setValue(e.target.value);
-          setError("");
-        }}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Escape") onCancel?.();
-          if (e.key === "Tab" && !e.shiftKey && onTab()) e.preventDefault();
-        }}
-      />
+      <div className="add-ref-field">
+        <input
+          ref={inputRef}
+          className="input"
+          autoFocus
+          list={listId}
+          value={value}
+          placeholder="~/repos/mi-repo/docs/diagramas"
+          spellCheck={false}
+          aria-label="Ruta de una carpeta o de un diagrama"
+          aria-invalid={!!error || undefined}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError("");
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Escape") onCancel?.();
+            if (e.key === "Tab" && !e.shiftKey && onTab()) e.preventDefault();
+          }}
+        />
+        {picker && (
+          <button className="icon-btn" type="button" title="Elegir en Finder" aria-label="Elegir en Finder" data-on={picking || undefined} disabled={busy} onClick={() => !picking && pick()}>
+            <Icon.folder />
+          </button>
+        )}
+      </div>
       <datalist id={listId}>
         {items.map((i) => (
           <option key={i} value={i} />
@@ -109,7 +153,7 @@ export function AddRef({ onAdded, onCancel, compact }: { onAdded: (ref: RefInfo)
       </datalist>
       {error && <p className="add-ref-error">{error}</p>}
       <div className="add-ref-actions">
-        <button className="btn primary" type="submit" disabled={busy}>
+        <button className="btn primary" type="submit" disabled={busy || picking}>
           Agregar
         </button>
         {onCancel && (
@@ -118,7 +162,11 @@ export function AddRef({ onAdded, onCancel, compact }: { onAdded: (ref: RefInfo)
           </button>
         )}
       </div>
-      <p className="add-ref-hint">Una carpeta o un archivo .excalidraw de cualquier repo. Quitarlo de la vista no borra nada.</p>
+      <p className="add-ref-hint">
+        {picking
+          ? "Elegí en la ventana de Finder que se abrió."
+          : "Una carpeta o un archivo .excalidraw de cualquier repo. Quitarlo de la vista no borra nada."}
+      </p>
     </form>
   );
 }

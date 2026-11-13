@@ -4,3 +4,5 @@ dist
 .serrugrams/
 public/fonts
 *.log
+serrugrams-site/
+serrugrams-cloud/

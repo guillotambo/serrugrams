@@ -2,6 +2,13 @@
 
 Estado: en pausa (13/11/2026). No hay código y no se implementa por ahora: Serrugrams se usa solo en local.
 
+Lo que sí existe:
+
+- **Nube para una persona en varias compus** ([nube.md](nube.md)): la app completa en Vercel, con los diagramas en Vercel Blob y contraseña. Usa funciones de Vercel sin WebSockets: no hace falta colaboración en vivo. Sin cifrado de punta a punta: Vercel ve el contenido (decidido el 13/11/2026).
+- **Sitio de solo lectura** (`serrugrams site`, ver [sitio.md](sitio.md)) para compartir.
+
+Lo de abajo sigue aplicando a la edición en vivo entre varias personas.
+
 Respuestas a las decisiones de abajo:
 
 1. Acceso: link con token por espacio.

@@ -3,6 +3,7 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { Comment, CommentsFile, RelPath } from "../shared/types.ts";
 import { api } from "./api.ts";
 import { bus, toast } from "./bus.ts";
+import { READ_ONLY } from "./mode.ts";
 import { Icon } from "./icons.tsx";
 import type { View } from "./Editor.tsx";
 import { load, store, timeAgo, uid } from "./util.ts";
@@ -180,19 +181,23 @@ function Thread({ comment, update, onClose, side }: { comment: Comment; update: 
     <div className="thread popover" {...side} onKeyDown={(e) => e.key === "Escape" && onClose()}>
       <div className="thread-head">
         <span className="thread-title">{comment.resolved ? "Resuelto" : "Comentario"}</span>
-        <button className="icon-btn" title={comment.resolved ? "Reabrir" : "Marcar como resuelto"} onClick={() => patch((c) => ({ ...c, resolved: !c.resolved }))}>
-          <Icon.check />
-        </button>
-        <button
-          className="icon-btn"
-          title="Eliminar comentario"
-          onClick={() => {
-            update((list) => list.filter((c) => c.id !== comment.id));
-            onClose();
-          }}
-        >
-          <Icon.trash />
-        </button>
+        {!READ_ONLY && (
+          <>
+            <button className="icon-btn" title={comment.resolved ? "Reabrir" : "Marcar como resuelto"} onClick={() => patch((c) => ({ ...c, resolved: !c.resolved }))}>
+              <Icon.check />
+            </button>
+            <button
+              className="icon-btn"
+              title="Eliminar comentario"
+              onClick={() => {
+                update((list) => list.filter((c) => c.id !== comment.id));
+                onClose();
+              }}
+            >
+              <Icon.trash />
+            </button>
+          </>
+        )}
         <button className="icon-btn" title="Cerrar" onClick={onClose}>
           <Icon.close />
         </button>
@@ -203,11 +208,13 @@ function Thread({ comment, update, onClose, side }: { comment: Comment; update: 
           <Message key={r.id} author={r.author} at={r.createdAt} text={r.text} />
         ))}
       </div>
-      <Composer
-        placeholder="Responder…"
-        submitLabel="Responder"
-        onSubmit={(text, author) => patch((c) => ({ ...c, replies: [...c.replies, { id: uid(), author, createdAt: new Date().toISOString(), text }] }))}
-      />
+      {!READ_ONLY && (
+        <Composer
+          placeholder="Responder…"
+          submitLabel="Responder"
+          onSubmit={(text, author) => patch((c) => ({ ...c, replies: [...c.replies, { id: uid(), author, createdAt: new Date().toISOString(), text }] }))}
+        />
+      )}
     </div>
   );
 }
@@ -291,9 +298,11 @@ export function CommentsPanel({ comments, showResolved, activeId, onShowResolved
     <aside className="panel">
       <header className="panel-head">
         <h2>Comentarios</h2>
-        <button className="icon-btn" title="Nuevo comentario" onClick={onAdd}>
-          <Icon.plus />
-        </button>
+        {!READ_ONLY && (
+          <button className="icon-btn" title="Nuevo comentario" onClick={onAdd}>
+            <Icon.plus />
+          </button>
+        )}
         <button className="icon-btn" title="Cerrar panel" onClick={onClose}>
           <Icon.close />
         </button>
@@ -302,9 +311,11 @@ export function CommentsPanel({ comments, showResolved, activeId, onShowResolved
         {list.length === 0 && (
           <div className="empty-note">
             <p>No hay comentarios {comments.length ? "abiertos" : "todavía"}.</p>
-            <button className="btn" onClick={onAdd}>
-              Agregar comentario
-            </button>
+            {!READ_ONLY && (
+              <button className="btn" onClick={onAdd}>
+                Agregar comentario
+              </button>
+            )}
           </div>
         )}
         {list.map(({ c, n }) => (

@@ -1,13 +1,14 @@
-// Acceso a disco confinado a la raíz del workspace. Lo usan el servidor HTTP y el MCP.
-import { existsSync, promises as fs } from "node:fs";
+// Los diagramas de una raíz y sus reglas: árbol, links, comentarios, renombrar con links al día, papelera.
+// Lo usan el servidor HTTP, el MCP, el sitio y la nube. Dónde se guardan los archivos lo decide el Store
+// (server/store.ts): el disco por defecto, o un depósito como Vercel Blob.
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import {
   COMMENTS_SUFFIX, DIAGRAM_EXT, emptyDiagram, makeDiagramLink, parseDiagramLink, resolveLinkTarget,
   type CommentsFile, type ExcalidrawFile, type RelPath, type TreeEntry,
 } from "../shared/types.ts";
-
-const IGNORED_DIRS = new Set(["node_modules", ".git", "dist", "build", ".serrugrams", ".next", "target", "vendor"]);
+import { DiskStore, IGNORED_DIRS, type Store } from "./store.ts";
 
 export class WorkspaceError extends Error {
   status: number;
@@ -30,34 +31,40 @@ export function gitRoot(dir: string): string | null {
 }
 
 export class Workspace {
+  /** En disco, la carpeta absoluta; si no, el nombre del store (p. ej. "vercel-blob:diagramas"). */
   root: string;
-  private linkCache = new Map<string, { mtimeMs: number; links: RelPath[] }>();
+  readonly store: Store;
+  private linkCache = new Map<string, { version: string; links: RelPath[] }>();
 
-  constructor(root: string) {
-    this.root = path.resolve(root);
+  constructor(rootOrStore: string | Store) {
+    this.store = typeof rootOrStore === "string" ? new DiskStore(rootOrStore) : rootOrStore;
+    this.root = this.store instanceof DiskStore ? this.store.root : this.store.label;
   }
 
   get rootName(): string {
     return path.basename(this.root);
   }
 
-  /** Resuelve una ruta relativa y garantiza que quede dentro de la raíz. */
-  resolve(rel: RelPath): string {
-    if (typeof rel !== "string" || rel.length === 0 || rel.includes("\0")) {
+  /** Valida una ruta relativa: dentro de la raíz, sin "..", sin carpetas ignoradas. Devuelve la ruta tal cual. */
+  check(rel: RelPath): RelPath {
+    if (typeof rel !== "string" || rel.length === 0 || rel.includes("\0") || rel.includes("\\") || rel.startsWith("/")) {
       throw new WorkspaceError(400, "Ruta inválida");
     }
-    const abs = path.resolve(this.root, rel);
-    if (abs !== this.root && !abs.startsWith(this.root + path.sep)) {
-      throw new WorkspaceError(400, "La ruta sale del workspace");
-    }
-    const parts = path.relative(this.root, abs).split(path.sep);
+    const parts = rel.split("/");
+    if (parts.some((p) => p === "" || p === "." || p === "..")) throw new WorkspaceError(400, "La ruta sale del workspace");
     if (parts.some((p) => IGNORED_DIRS.has(p))) throw new WorkspaceError(400, "Ruta no permitida");
-    return abs;
+    return rel;
   }
 
-  private resolveDiagram(rel: RelPath): string {
-    if (!rel.endsWith(DIAGRAM_EXT)) throw new WorkspaceError(400, `La ruta debe terminar en ${DIAGRAM_EXT}`);
-    return this.resolve(rel);
+  /** Solo en disco: la ruta absoluta (validada). */
+  resolve(rel: RelPath): string {
+    if (!(this.store instanceof DiskStore)) throw new Error("Este workspace no está en disco");
+    return this.store.abs(this.check(rel));
+  }
+
+  private checkDiagram(rel: RelPath): RelPath {
+    if (typeof rel !== "string" || !rel.endsWith(DIAGRAM_EXT)) throw new WorkspaceError(400, `La ruta debe terminar en ${DIAGRAM_EXT}`);
+    return this.check(rel);
   }
 
   toRel(abs: string): RelPath {
@@ -65,45 +72,32 @@ export class Workspace {
   }
 
   async tree(): Promise<TreeEntry[]> {
-    const entries: TreeEntry[] = [];
-    const walk = async (dir: string): Promise<boolean> => {
-      let hasDiagram = false;
-      let items: import("node:fs").Dirent[];
-      try {
-        items = await fs.readdir(dir, { withFileTypes: true });
-      } catch {
-        return false;
+    const { files, dirs } = await this.store.list();
+    // Una carpeta se lista si tiene diagramas adentro (a cualquier profundidad), si está vacía (recién creada)
+    // o si adentro hay otra que se lista. Las que solo tienen otras cosas (código, imágenes) no.
+    const withDiagrams = new Set<RelPath>();
+    for (const f of files) for (let d = path.posix.dirname(f.path); d !== "."; d = path.posix.dirname(d)) withDiagrams.add(d);
+    const kept = new Set<RelPath>();
+    for (const d of [...dirs].sort((a, b) => b.path.split("/").length - a.path.split("/").length)) {
+      if (withDiagrams.has(d.path) || d.empty || kept.has(d.path)) {
+        kept.add(d.path);
+        const parent = path.posix.dirname(d.path);
+        if (parent !== ".") kept.add(parent);
       }
-      items.sort((a, b) => a.name.localeCompare(b.name));
-      for (const item of items) {
-        const abs = path.join(dir, item.name);
-        if (item.isDirectory()) {
-          if (IGNORED_DIRS.has(item.name) || item.name.startsWith(".")) continue;
-          const idx = entries.length;
-          entries.push({ path: this.toRel(abs), type: "dir" });
-          const sub = await walk(abs);
-          // Las carpetas sin diagramas no se listan, salvo que estén vacías (recién creadas).
-          if (!sub && (await isNonEmptyDir(abs))) entries.splice(idx, entries.length - idx);
-          else hasDiagram = true;
-        } else if (item.isFile() && item.name.endsWith(DIAGRAM_EXT)) {
-          hasDiagram = true;
-          const rel = this.toRel(abs);
-          entries.push({ path: rel, type: "file", links: await this.linksOf(rel), openComments: await this.openComments(rel) });
-        }
-      }
-      return hasDiagram;
-    };
-    await walk(this.root);
-    return entries;
+    }
+    const entries: TreeEntry[] = dirs.filter((d) => kept.has(d.path)).map((d) => ({ path: d.path, type: "dir" }));
+    for (const f of files) {
+      entries.push({ path: f.path, type: "file", links: await this.linksOf(f.path, f.version), openComments: await this.openComments(f.path) });
+    }
+    // Mismo orden que recorrer el disco: por nombre en cada nivel, cada carpeta seguida de lo que tiene adentro.
+    return entries.sort((a, b) => comparePaths(a.path, b.path));
   }
 
-  private async linksOf(rel: RelPath): Promise<RelPath[]> {
-    const abs = this.resolve(rel);
+  private async linksOf(rel: RelPath, version: string): Promise<RelPath[]> {
+    const cached = this.linkCache.get(rel);
+    if (cached && version && cached.version === version) return cached.links;
     try {
-      const stat = await fs.stat(abs);
-      const cached = this.linkCache.get(rel);
-      if (cached && cached.mtimeMs === stat.mtimeMs) return cached.links;
-      const data = JSON.parse(await fs.readFile(abs, "utf8"));
+      const data = JSON.parse((await this.store.read(rel)) ?? "");
       const links = new Set<RelPath>();
       for (const el of data.elements ?? []) {
         if (el.isDeleted) continue;
@@ -111,7 +105,7 @@ export class Workspace {
         if (parsed) links.add(parsed.path);
       }
       const result = [...links];
-      this.linkCache.set(rel, { mtimeMs: stat.mtimeMs, links: result });
+      this.linkCache.set(rel, { version, links: result });
       return result;
     } catch {
       return [];
@@ -128,22 +122,12 @@ export class Workspace {
   }
 
   async exists(rel: RelPath): Promise<boolean> {
-    try {
-      await fs.access(this.resolve(rel));
-      return true;
-    } catch {
-      return false;
-    }
+    return (await this.store.kind(this.check(rel))) !== null;
   }
 
   async readDiagram(rel: RelPath): Promise<{ content: ExcalidrawFile; hash: string }> {
-    const abs = this.resolveDiagram(rel);
-    let text: string;
-    try {
-      text = await fs.readFile(abs, "utf8");
-    } catch {
-      throw new WorkspaceError(404, `No existe ${rel}`);
-    }
+    const text = await this.store.read(this.checkDiagram(rel));
+    if (text === null) throw new WorkspaceError(404, `No existe ${rel}`);
     if (text.trim() === "") return { content: emptyDiagram(), hash: hashOf(text) };
     try {
       const content = JSON.parse(text);
@@ -157,18 +141,15 @@ export class Workspace {
   }
 
   /**
-   * Escribe un diagrama de forma atómica. Si se pasa `baseHash` y el archivo
-   * cambió en disco desde entonces, falla con 409 para no pisar cambios ajenos.
+   * Escribe un diagrama entero. Si se pasa `baseHash` y el archivo cambió desde entonces, falla con 409 para no
+   * pisar cambios ajenos.
    */
   async writeDiagram(rel: RelPath, content: ExcalidrawFile, opts: { baseHash?: string; mustNotExist?: boolean } = {}): Promise<string> {
-    const abs = this.resolveDiagram(rel);
+    this.checkDiagram(rel);
     if (opts.mustNotExist && (await this.exists(rel))) throw new WorkspaceError(409, `Ya existe ${rel}`);
     if (opts.baseHash) {
-      let current: string | null = null;
-      try {
-        current = hashOf(await fs.readFile(abs, "utf8"));
-      } catch {}
-      if (current !== null && current !== opts.baseHash) {
+      const current = await this.store.read(rel);
+      if (current !== null && hashOf(current) !== opts.baseHash) {
         throw new WorkspaceError(409, "El archivo cambió en disco");
       }
     }
@@ -177,17 +158,17 @@ export class Workspace {
       null,
       2,
     ) + "\n";
-    await atomicWrite(abs, text);
+    await this.store.write(rel, text);
     return hashOf(text);
   }
 
-  commentsPath(rel: RelPath): string {
-    return this.resolveDiagram(rel) + COMMENTS_SUFFIX;
+  private commentsKey(rel: RelPath): RelPath {
+    return this.checkDiagram(rel) + COMMENTS_SUFFIX;
   }
 
   async readComments(rel: RelPath): Promise<CommentsFile> {
     try {
-      const data = JSON.parse(await fs.readFile(this.commentsPath(rel), "utf8"));
+      const data = JSON.parse((await this.store.read(this.commentsKey(rel))) ?? "");
       return { version: 1, comments: Array.isArray(data.comments) ? data.comments : [] };
     } catch {
       return { version: 1, comments: [] };
@@ -195,40 +176,33 @@ export class Workspace {
   }
 
   async writeComments(rel: RelPath, data: CommentsFile): Promise<void> {
-    const file = this.commentsPath(rel);
+    const key = this.commentsKey(rel);
     if (data.comments.length === 0) {
-      await fs.rm(file, { force: true });
+      await this.store.remove(key);
       return;
     }
-    await atomicWrite(file, JSON.stringify({ version: 1, comments: data.comments }, null, 2) + "\n");
+    await this.store.write(key, JSON.stringify({ version: 1, comments: data.comments }, null, 2) + "\n");
   }
 
   async mkdir(rel: RelPath): Promise<void> {
-    await fs.mkdir(this.resolve(rel), { recursive: true });
+    await this.store.mkdir(this.check(rel));
   }
 
   /** Renombra o mueve un diagrama o carpeta. Mueve también el sidecar de comentarios. */
   async rename(from: RelPath, to: RelPath): Promise<void> {
-    const src = this.resolve(from);
-    const dst = this.resolve(to);
+    this.check(from);
+    this.check(to);
     if (await this.exists(to)) throw new WorkspaceError(409, `Ya existe ${to}`);
-    let stat;
-    try {
-      stat = await fs.stat(src);
-    } catch {
-      throw new WorkspaceError(404, `No existe ${from}`);
-    }
-    if (stat.isFile() && (!from.endsWith(DIAGRAM_EXT) || !to.endsWith(DIAGRAM_EXT))) {
+    const kind = await this.store.kind(from);
+    if (!kind) throw new WorkspaceError(404, `No existe ${from}`);
+    if (kind === "file" && (!from.endsWith(DIAGRAM_EXT) || !to.endsWith(DIAGRAM_EXT))) {
       throw new WorkspaceError(400, `Solo se pueden renombrar archivos ${DIAGRAM_EXT}`);
     }
-    await fs.mkdir(path.dirname(dst), { recursive: true });
-    await fs.rename(src, dst);
-    if (stat.isFile()) {
-      try {
-        await fs.rename(src + COMMENTS_SUFFIX, dst + COMMENTS_SUFFIX);
-      } catch {}
+    await this.store.move(from, to);
+    if (kind === "file" && (await this.store.kind(from + COMMENTS_SUFFIX)) === "file") {
+      await this.store.move(from + COMMENTS_SUFFIX, to + COMMENTS_SUFFIX);
     }
-    await this.rewriteLinks(from, to, stat.isDirectory());
+    await this.rewriteLinks(from, to, kind === "dir");
   }
 
   /**
@@ -272,41 +246,29 @@ export class Workspace {
     }
   }
 
-  /** No borra: mueve a `.serrugrams/trash/` dentro del workspace. */
+  /** No borra: mueve a `.serrugrams/trash/<fecha>/` dentro del workspace. */
   async trash(rel: RelPath): Promise<void> {
-    const src = this.resolve(rel);
-    let stat;
-    try {
-      stat = await fs.stat(src);
-    } catch {
-      throw new WorkspaceError(404, `No existe ${rel}`);
-    }
-    if (stat.isFile() && !rel.endsWith(DIAGRAM_EXT)) throw new WorkspaceError(400, "Solo se pueden eliminar diagramas o carpetas");
+    this.check(rel);
+    const kind = await this.store.kind(rel);
+    if (!kind) throw new WorkspaceError(404, `No existe ${rel}`);
+    if (kind === "file" && !rel.endsWith(DIAGRAM_EXT)) throw new WorkspaceError(400, "Solo se pueden eliminar diagramas o carpetas");
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const dstDir = path.join(this.root, ".serrugrams", "trash", stamp);
-    await fs.mkdir(path.join(dstDir, path.dirname(rel)), { recursive: true });
-    await fs.rename(src, path.join(dstDir, rel));
-    if (stat.isFile()) {
-      try {
-        await fs.rename(src + COMMENTS_SUFFIX, path.join(dstDir, rel + COMMENTS_SUFFIX));
-      } catch {}
+    const dst = `.serrugrams/trash/${stamp}/${rel}`;
+    await this.store.move(rel, dst);
+    if (kind === "file" && (await this.store.kind(rel + COMMENTS_SUFFIX)) === "file") {
+      await this.store.move(rel + COMMENTS_SUFFIX, dst + COMMENTS_SUFFIX);
     }
   }
 }
 
-async function isNonEmptyDir(abs: string): Promise<boolean> {
-  try {
-    return (await fs.readdir(abs)).length > 0;
-  } catch {
-    return true;
+/** Orden de recorrido: por nombre en cada nivel, y una carpeta antes que lo que tiene adentro. */
+function comparePaths(a: RelPath, b: RelPath): number {
+  const pa = a.split("/");
+  const pb = b.split("/");
+  for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+    if (pa[i] !== pb[i]) return pa[i].localeCompare(pb[i]);
   }
-}
-
-async function atomicWrite(abs: string, text: string): Promise<void> {
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.${randomBytes(4).toString("hex")}.tmp`);
-  await fs.writeFile(tmp, text, "utf8");
-  await fs.rename(tmp, abs);
+  return pa.length - pb.length;
 }
 
 export function newId(): string {

@@ -1,6 +1,43 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "serrugrams-dev", "runtimeExecutable": "pnpm", "runtimeArgs": ["dev"], "port": 5173 }
+    {
+      "name": "serrugrams-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "serrugrams-site",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4949",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "serrugrams-site"
+      ],
+      "port": 4949
+    },
+    {
+      "name": "serrugrams-cloud-local",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "bin/serrugrams.js",
+        "cloud",
+        "local",
+        "--root",
+        ".serrugrams/nube-local",
+        "--password",
+        "prueba-local",
+        "--port",
+        "4950"
+      ],
+      "port": 4950
+    }
   ]
 }

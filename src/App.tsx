@@ -8,11 +8,13 @@ import { bus, onToasts, toast, type Toast } from "./bus.ts";
 import { CommentPins, CommentsPanel, anchorAt, anchorForElement, anchorPoint, useComments, type Draft } from "./Comments.tsx";
 import { Editor, type SaveStatus } from "./Editor.tsx";
 import { ExportDialog } from "./ExportDialog.tsx";
+import { PathChooser, addDropped, isFinderDrag } from "./finderDrop.tsx";
 import { Icon } from "./icons.tsx";
 import { MetaPopover, META_FIELDS } from "./MetaPopover.tsx";
 import { Palette } from "./Palette.tsx";
 import { Tooltips } from "./Tooltip.tsx";
 import { Sidebar } from "./Sidebar.tsx";
+import { CLOUD, MANAGE_VIEW, SITE, SITE_COMMENTS } from "./mode.ts";
 import { dirName, displayName, joinPath, load, sanitizeName, store } from "./util.ts";
 import { useViewStore, viewStore } from "./viewStore.ts";
 
@@ -43,6 +45,7 @@ export function App() {
   const [panelOpen, setPanelOpen] = useState<boolean>(() => load("panel", false));
   const [palette, setPalette] = useState<"open" | "link" | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [welcomeDrop, setWelcomeDrop] = useState(false);
   const [metaOpen, setMetaOpen] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -83,7 +86,15 @@ export function App() {
   useEffect(() => {
     reloadTree();
     // Respaldo por si la conexión de eventos quedó colgada (p. ej. el proxy de desarrollo tras reiniciar el servidor).
-    const onFocus = () => reloadTree();
+    const onFocus = () => {
+      reloadTree();
+      // En la nube no hay eventos en vivo: al volver a la pestaña se relee lo abierto (pudo cambiar en la otra compu).
+      const cur = currentRef.current;
+      if (CLOUD && cur) {
+        bus.emit({ type: "file", path: cur, hash: "" });
+        bus.emit({ type: "comments", path: cur });
+      }
+    };
     window.addEventListener("focus", onFocus);
     const stop = subscribe((e) => {
       if (e.type === "hello" || e.type === "tree") reloadTree();
@@ -165,7 +176,10 @@ export function App() {
     try {
       fromHash = decodeURI(location.hash.replace(/^#\//, ""));
     } catch {}
-    const candidate = [fromHash, load<string>("last", "")].find((p) => p && entries.some((e) => e.path === p && e.type === "file"));
+    const files = entries.filter((e) => e.type === "file" && !e.hidden).map((e) => e.path);
+    // En el sitio se entra por el panorama (o el primer diagrama): quien abre el link no tiene un "último".
+    const entry = SITE ? files.find((p) => p.endsWith("/panorama" + DIAGRAM_EXT)) ?? files[0] : "";
+    const candidate = [fromHash, load<string>("last", ""), entry].find((p) => p && entries.some((e) => e.path === p && e.type === "file"));
     if (candidate) navigate(candidate);
   }, [entries, navigate]);
 
@@ -454,7 +468,23 @@ export function App() {
               </span>
             )}
           </div>
-          {current && (
+          {current && SITE && (
+            <>
+              <span className="status">Solo lectura</span>
+              {SITE_COMMENTS && (
+                <button className="btn ghost" data-on={panelOpen || undefined} title="Ver comentarios" onClick={() => setPanelOpen((v) => !v)}>
+                  <Icon.panel />
+                  <span className="lbl">Comentarios</span>
+                  {openComments > 0 && <span className="count">{openComments}</span>}
+                </button>
+              )}
+              <button className="btn ghost" title="Exportar" onClick={() => setExporting(true)}>
+                <Icon.export />
+                <span className="lbl">Exportar</span>
+              </button>
+            </>
+          )}
+          {current && !SITE && (
             <>
               <span className="status" data-status={status} aria-live="polite">
                 {STATUS_LABEL[status]}
@@ -543,8 +573,39 @@ export function App() {
             </>
           ) : (
             entries && (
-              <div className="welcome">
-                {refs.length === 0 ? (
+              <div
+                className="welcome"
+                data-drop={welcomeDrop || undefined}
+                data-drop-label={CLOUD ? "Soltá para importar" : "Soltá para agregar a la vista"}
+                onDragOver={(e) => {
+                  if (SITE || !isFinderDrag(e)) return;
+                  e.preventDefault();
+                  setWelcomeDrop(true);
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) setWelcomeDrop(false);
+                }}
+                onDrop={(e) => {
+                  if (SITE || !isFinderDrag(e)) return;
+                  e.preventDefault();
+                  setWelcomeDrop(false);
+                  if (!MANAGE_VIEW) {
+                    if (defaultDir) importFiles(e.dataTransfer.files, defaultDir);
+                    return;
+                  }
+                  addDropped(e.dataTransfer, async (ref) => {
+                    toast(`"${ref.id}" está en la vista`);
+                    await reloadTree();
+                    if (ref.kind === "file" && ref.file) navigate(ref.file);
+                  });
+                }}
+              >
+                {SITE ? (
+                  <>
+                    <h1>{entries.some((e) => e.type === "file" && !e.hidden) ? "Elegí un diagrama" : "No hay diagramas publicados"}</h1>
+                    <p>Diagramas de solo lectura. Los links de cada caja llevan del panorama general al detalle.</p>
+                  </>
+                ) : refs.length === 0 ? (
                   <>
                     <h1>Armá tu vista</h1>
                     <p>
@@ -560,7 +621,11 @@ export function App() {
                 ) : (
                   <>
                     <h1>{entries.some((e) => e.type === "file" && !e.hidden) ? "Elegí un diagrama" : "Empezá tu primer diagrama"}</h1>
-                    <p>Los diagramas se guardan como archivos <code>.excalidraw</code> en cada repo. Podés linkear uno con otro para ir del panorama general al detalle.</p>
+                    <p>
+                      {CLOUD ? "Los diagramas se guardan en la nube, como archivos " : "Los diagramas se guardan como archivos "}
+                      <code>.excalidraw</code>
+                      {CLOUD ? ": arrastrá los tuyos para subirlos." : " en cada repo."} Podés linkear uno con otro para ir del panorama general al detalle.
+                    </p>
                     <div className="welcome-actions">
                       <button
                         className="btn primary"
@@ -586,7 +651,7 @@ export function App() {
           )}
         </div>
       </main>
-      {panelOpen && current && (
+      {panelOpen && current && (!SITE || SITE_COMMENTS) && (
         <CommentsPanel
           comments={comments}
           showResolved={showResolved}
@@ -609,6 +674,7 @@ export function App() {
         />
       )}
       {exporting && current && excalidraw && <ExportDialog path={current} excalidraw={excalidraw} comments={comments} theme={theme} onClose={() => setExporting(false)} />}
+      {MANAGE_VIEW && <PathChooser />}
       <Toasts />
       <Tooltips />
     </div>

@@ -144,3 +144,6 @@ export function makeDiagramLink(path: RelPath, elementId?: string): string {
 export function emptyDiagram(): ExcalidrawFile {
   return { type: "excalidraw", version: 2, source: "serrugrams", elements: [], appState: { viewBackgroundColor: "#ffffff" }, files: {} };
 }
+
+/** Lo que se soltó desde Finder, para ubicarlo en disco (server/locate.ts): el navegador no da la ruta. */
+export type Dropped = { kind: "file"; name: string; size: number; mtime: number } | { kind: "dir"; name: string; children: string[] };

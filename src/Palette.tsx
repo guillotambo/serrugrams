@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DIAGRAM_EXT, type RelPath, type TreeEntry } from "../shared/types.ts";
 import { Icon } from "./icons.tsx";
+import { READ_ONLY } from "./mode.ts";
 import { dirName, displayName, fuzzyScore, joinPath, sanitizeName } from "./util.ts";
 
 interface Props {
@@ -38,7 +39,7 @@ export function Palette({ mode, entries, current, defaultDir, recent, onPick, on
     const dir = current ? dirName(current) : defaultDir;
     const newPath = name && dir ? joinPath(dir, name.endsWith(DIAGRAM_EXT) ? name : name + DIAGRAM_EXT) : "";
     const exists = entries.some((e) => e.path === newPath);
-    return newPath && !exists ? [...scored, { kind: "create" as const, path: newPath }] : scored;
+    return newPath && !exists && !READ_ONLY ? [...scored, { kind: "create" as const, path: newPath }] : scored;
   }, [entries, query, current, defaultDir, recent]);
 
   useEffect(() => setIndex(0), [query]);
@@ -72,7 +73,7 @@ export function Palette({ mode, entries, current, defaultDir, recent, onPick, on
           />
         </div>
         <div className="palette-list" ref={listRef}>
-          {items.length === 0 && <div className="palette-empty">{query ? "Sin resultados" : "No hay otros diagramas todavía. Escribí un nombre para crear uno."}</div>}
+          {items.length === 0 && <div className="palette-empty">{query ? "Sin resultados" : READ_ONLY ? "No hay otros diagramas." : "No hay otros diagramas todavía. Escribí un nombre para crear uno."}</div>}
           {items.map((item, i) => (
             <button key={item.kind + item.path} className="palette-item" data-selected={i === index} onMouseMove={() => setIndex(i)} onClick={() => pick(i)}>
               <span className="row-icon">{item.kind === "create" ? <Icon.plus /> : <Icon.file />}</span>

@@ -19,7 +19,7 @@ const STATE = path.join(HOME, "server.json");
 const LOG = path.join(HOME, "server.log");
 const WORKSPACE = path.join(HOME, "workspace.json");
 const DEFAULT_PORT = Number(process.env.SERRUGRAMS_PORT ?? 4747);
-const COMMANDS = new Set(["ls", "list", "remove", "rm", "stop", "open", "logs", "help", "mcp"]);
+const COMMANDS = new Set(["ls", "list", "remove", "rm", "stop", "open", "logs", "help", "mcp", "site", "cloud"]);
 
 const HELP = `serrugrams: diagramas de sistemas sobre Excalidraw.
 
@@ -35,6 +35,10 @@ Uso:
   serrugrams stop                 Apaga el servidor.
   serrugrams logs [-f]            Lo que imprimió el servidor; -f lo sigue en vivo.
   serrugrams mcp --root <carpeta> Servidor MCP por stdio, para agentes (Claude Code, Codex, Cursor…).
+  serrugrams site <ruta>… [--out carpeta] [--comments]
+                                  Arma un sitio estático de solo lectura con esos diagramas, para publicar
+                                  (p. ej. npx vercel deploy serrugrams-site). Los comentarios solo con --comments.
+  serrugrams cloud build | local  La versión en la nube (Vercel + Blob, con contraseña). Ver docs/nube.md.
 
 Opciones:
   --port N     Puerto del servidor (por defecto ${DEFAULT_PORT}).
@@ -77,8 +81,8 @@ function parsePort(v) {
   return n;
 }
 
-function passthroughMcp(rest) {
-  const child = spawn(process.execPath, [serverScript("mcp"), ...rest], { stdio: "inherit" });
+function passthrough(script, rest) {
+  const child = spawn(process.execPath, [serverScript(script), ...rest], { stdio: "inherit" });
   child.on("exit", (code) => process.exit(code ?? 0));
 }
 
@@ -381,5 +385,6 @@ function fail(msg) {
 
 // Al final, para que todas las constantes de arriba ya estén definidas.
 const argv = process.argv.slice(2);
-if (argv[0] === "mcp") passthroughMcp(argv.slice(1));
+if (argv[0] === "mcp" || argv[0] === "site") passthrough(argv[0], argv.slice(1));
+else if (argv[0] === "cloud") passthrough("cloudtools", argv.slice(1));
 else await main(argv);

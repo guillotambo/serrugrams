@@ -11,6 +11,8 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { WorkspaceError } from "./workspace.ts";
 import { Refs, completePath } from "./refs.ts";
+import { pickPath, pickerAvailable } from "./picker.ts";
+import { locate } from "./locate.ts";
 import { emptyDiagram, refIdOf, type ServerEvent } from "../shared/types.ts";
 
 const args = process.argv.slice(2);
@@ -101,6 +103,15 @@ app.delete("/api/refs", async (c) => {
 });
 
 app.get("/api/complete", async (c) => c.json({ items: await completePath(c.req.query("prefix") ?? "") }));
+
+// Selector nativo (server/picker.ts): devuelve la ruta elegida, o null si se canceló.
+app.get("/api/pick", (c) => c.json({ available: pickerAvailable }));
+app.post("/api/pick", async (c) => {
+  const body = await c.req.json();
+  return c.json({ path: await pickPath(body.start) });
+});
+// Lo soltado desde Finder (server/locate.ts): las rutas que coinciden, para agregar a la vista.
+app.post("/api/locate", async (c) => c.json({ paths: await locate(await c.req.json()), home: os.homedir() }));
 
 // --- Diagramas (rutas globales: `<referencia>/<ruta>`) ---
 app.get("/api/file", async (c) => {

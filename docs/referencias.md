@@ -50,6 +50,8 @@ Al crear un link desde la interfaz se imita a los links que el diagrama ya tiene
 
 - Botón «Agregar a la vista» en la barra lateral: pegás la ruta de una carpeta o de un `.excalidraw` (acepta `~`, con autocompletado y Tab).
 - En macOS, el botón de carpeta al lado del campo abre el selector de Finder (carpetas y `.excalidraw` en el mismo diálogo) y agrega lo que elegís. Arranca en lo que haya escrito en el campo. El diálogo lo abre el servidor (`server/picker.ts`, `POST /api/pick`), porque el navegador no le da a la página la ruta de un archivo, ni con un selector de archivos ni arrastrando desde Finder. En otros sistemas el botón no aparece.
+- En macOS también se puede **soltar desde Finder** una carpeta o un `.excalidraw` en la barra lateral o en la pantalla de bienvenida, y queda en la vista donde está. Como el navegador no da la ruta, se manda el nombre con el tamaño y la fecha (archivo) o con el contenido (carpeta), y el servidor lo busca en Spotlight (`server/locate.ts`, `POST /api/locate`). Si coincide en más de un lugar (dos checkouts del mismo repo, por ejemplo) hace elegir; si no lo encuentra (Spotlight apagado o todavía sin indexar), queda el botón de carpeta.
+- Soltar un `.excalidraw` **sobre una carpeta** de la barra lateral es otra cosa: importa una copia ahí (para un diagrama exportado que te pasaron).
 - Menú de una referencia: nuevo diagrama, nueva carpeta, renombrar (cambia el `id`) y quitar de la vista.
 - Crear un diagrama al lado de un diagrama suelto lo agrega a la vista como otra referencia, para que no quede escondido.
 - Renombrar o mover entre referencias distintas no se puede: son repos distintos.
