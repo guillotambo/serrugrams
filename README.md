@@ -98,7 +98,8 @@ El servidor escucha solo en `127.0.0.1`, rechaza pedidos con `Host` u `Origin` q
 
 - Vista con referencias (un servidor, carpetas y diagramas sueltos de varios repos): probado en el navegador agregando, quitando, renombrando, siguiendo links a diagramas fuera de la vista, creando un diagrama al lado de uno suelto y con una carpeta que desaparece y vuelve; tests en `server/refs.test.ts` y `server/cli.test.ts`. Los links entre repos distintos no están soportados.
 - Probado en el navegador: crear, dibujar, autoguardado, links y navegación, renombrar con reescritura de links, comentarios, exportar e importar con comentarios, y ediciones por MCP con el diagrama abierto.
-- El MCP se probó con el cliente oficial del SDK y desde Claude Code real (las 12 herramientas, con el `.mcp.json` del repo y la app abierta); todavía no desde Codex o Cursor.
+- El MCP se probó con el cliente oficial del SDK y desde Claude Code real (las 12 herramientas, con la app abierta); todavía no desde Codex o Cursor.
+- La skill se probó con `claude -p` en otro repo y el MCP configurado a nivel usuario: «diagramá…» y «hacé un diagrama de…» la activan (también lanzando Claude desde una subcarpeta: los diagramas van igual al `docs/diagramas` de la raíz del repo), «revisá los comentarios del diagrama» también, y una pregunta suelta sobre diagramas no. Falta probar el prompt `diagramar` desde Codex o Cursor y que `skills/` viaje bien en el paquete npm.
 - Las fuentes de Excalidraw se copian solas a `public/fonts` al empezar `pnpm dev` y `pnpm build` (`scripts/copy-fonts.mjs`; a mano: `pnpm fonts`).
 - El encuadre inicial calcula el zoom exacto (85 % del lienzo, sin pasar del 100 % ni dejar contenido debajo de las barras de arriba y abajo) en vez de usar el de Excalidraw, que redondea hacia abajo de a 10 %.
 - Al llegar por un link con `#elementId`, el destino se marca con un contorno que se desvanece; no se selecciona, así no se abre el panel de propiedades.

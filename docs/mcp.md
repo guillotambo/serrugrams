@@ -21,7 +21,7 @@ Con el paquete npm instalado (o por `npx`), el equivalente es `serrugrams mcp --
 | --- | --- |
 | `list_diagrams()` | La raíz, todos los diagramas, a qué diagramas linkea cada uno y cuántos comentarios abiertos tiene. También `addToView`: el comando que suma esa carpeta a tu vista. |
 | `read_diagram(path, raw?)` | Resumen compacto: nodos (id, tipo, label, x, y, w, h, link, customData), flechas (from, to, label, estilo) y textos sueltos. `raw: true` agrega los elementos crudos. |
-| `create_diagram(path, nodes, edges, direction?, overwrite?)` | Crea un diagrama. Falla si ya existe, salvo `overwrite: true`. |
+| `create_diagram(path, nodes, edges, direction?, overwrite?)` | Crea un diagrama. Falla si ya existe, salvo `overwrite: true`. Devuelve los ids creados, la raíz y `addToView`. |
 | `add_elements(path, nodes, edges, direction?)` | Agrega nodos/flechas; las flechas pueden apuntar a ids existentes. Lo nuevo se ubica sin pisar lo que hay. |
 | `update_element(path, id, patch)` | `label`, `x`/`y` (re-rutea las flechas), `width`/`height`, colores, `link`, `customData` (merge), `style` (flechas). |
 | `delete_elements(path, ids)` | Borra; un nodo se lleva su label y sus flechas. |
