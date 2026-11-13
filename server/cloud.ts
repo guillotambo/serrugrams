@@ -1,11 +1,14 @@
 // API del modo nube: la misma que usa la UI en local (server/index.ts), sobre un solo Workspace (Vercel Blob en
 // producción) y detrás de una contraseña. No trae lo que solo tiene sentido en tu máquina: la vista con varias
 // referencias, el selector de carpetas, ubicar lo soltado desde Finder ni los eventos en vivo. Ver docs/nube.md.
+// También sirve el MCP por HTTP en /api/mcp, para que un agente edite los diagramas de la nube (con su propio token).
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Hono, type Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { emptyDiagram, resolveLinkTarget, type RefInfo, type RelPath, type TreeEntry, type TreeResponse } from "../shared/types.ts";
 import { Workspace, WorkspaceError } from "./workspace.ts";
+import { createMcpServer } from "./mcpserver.ts";
 
 export interface CloudOptions {
   ws: Workspace;
@@ -15,7 +18,14 @@ export interface CloudOptions {
   refId?: string;
   /** Cookie solo por HTTPS (en Vercel, sí; probando en localhost, no). */
   secure?: boolean;
+  /** Token del MCP remoto (`Authorization: Bearer …`). Sin token, /api/mcp responde 503. */
+  mcpToken?: string;
+  /** La skill para el prompt "diagramar" del MCP (en Vercel va embebida al empaquetar). */
+  workflow?: string | null;
 }
+
+const CLOUD_NOTE =
+  "- These diagrams live in the user's Serrugrams cloud (a web app), not in a repo: there is no local folder to add to a view. The user sees your changes when they reopen the diagram or return to the browser tab.";
 
 export const SESSION_COOKIE = "serrugrams_session";
 const SESSION_DAYS = 30;
@@ -45,6 +55,13 @@ export function cloudApp(opts: CloudOptions): Hono {
   // --- Defensas, en orden: configurada, mismo origen para escribir, sesión ---
   app.use("/api/*", async (c, next) => {
     if (!opts.password) return c.json({ error: "Falta configurar SERRUGRAMS_PASSWORD en el servidor" }, 503);
+    // El MCP no usa cookie ni navegador: va con su propio token.
+    if (c.req.path === "/api/mcp") {
+      if (!opts.mcpToken) return c.json({ error: "Falta configurar SERRUGRAMS_MCP_TOKEN en el servidor" }, 503);
+      const auth = c.req.header("authorization") ?? "";
+      if (!same(auth, `Bearer ${opts.mcpToken}`)) return c.json({ error: "Token inválido" }, 401);
+      return next();
+    }
     const method = c.req.method;
     if (method !== "GET" && method !== "HEAD") {
       // Un formulario de otra web no puede mandar JSON sin preflight; y si el navegador dice de dónde viene, tiene que ser de acá.
@@ -134,6 +151,17 @@ export function cloudApp(opts: CloudOptions): Hono {
   app.put("/api/comments", async (c) => {
     await ws.writeComments(rel(q(c, "path")), await c.req.json());
     return c.json({ ok: true });
+  });
+
+  // --- MCP por HTTP, sin sesiones: cada pedido arma su servidor (es barato) y responde JSON. ---
+  app.all("/api/mcp", async (c) => {
+    const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
+    const proto = c.req.header("x-forwarded-proto") ?? (opts.secure ? "https" : "http");
+    const openUrl = (rel: RelPath) => `${proto}://${host}/#/${refId}/${encodeURI(rel)}`;
+    const server = createMcpServer(ws, { addToView: null, workflow: opts.workflow ?? null, note: CLOUD_NOTE, openUrl });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    await server.connect(transport);
+    return transport.handleRequest(c.req.raw);
   });
 
   app.all("/api/*", (c) => c.json({ error: "No existe en la nube" }, 404));

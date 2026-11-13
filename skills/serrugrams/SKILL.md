@@ -1,26 +1,40 @@
 ---
 name: serrugrams
-description: Investiga el código de un repo y lo diagrama con el MCP de Serrugrams (archivos .excalidraw en docs/diagramas, del panorama al detalle), o atiende los comentarios que dejaron en un diagrama. Usar cuando piden dibujar o actualizar un diagrama de un sistema — «diagramá cómo funciona X», «hacé un diagrama de…», «actualizá el panorama» — o «revisá los comentarios del diagrama». No usar ante una mención suelta de diagramas: preguntas sobre un diagrama, Mermaid o ASCII dentro de un documento, o cambios al código de Serrugrams.
+description: Investiga el código de un repo y lo diagrama con el MCP de Serrugrams (archivos .excalidraw en docs/diagramas del repo, o en Serrugrams en la nube si lo piden, del panorama al detalle), o atiende los comentarios que dejaron en un diagrama. Usar cuando piden dibujar o actualizar un diagrama de un sistema — «diagramá cómo funciona X», «hacé un diagrama de…», «actualizá el panorama» — o «revisá los comentarios del diagrama». No usar ante una mención suelta de diagramas: preguntas sobre un diagrama, Mermaid o ASCII dentro de un documento, o cambios al código de Serrugrams.
 ---
 
 # Diagramar un sistema con Serrugrams
 
-Serrugrams guarda cada diagrama como un archivo `.excalidraw` en el repo que describe, en `docs/diagramas/`, versionado con el código. Los comentarios van aparte, en `<diagrama>.excalidraw.comments.json`. Todo se lee y se escribe con las herramientas del MCP `serrugrams` (`list_diagrams`, `read_diagram`, `create_diagram`, `add_elements`, `update_element`, `delete_elements`, `link_element`, `rename_diagram`, `list_comments`, `add_comment`, `reply_comment`, `resolve_comment`).
+Serrugrams guarda cada diagrama como un archivo `.excalidraw`, con sus comentarios aparte en `<diagrama>.excalidraw.comments.json`. Todo se lee y se escribe con las herramientas de su MCP (`list_diagrams`, `read_diagram`, `create_diagram`, `add_elements`, `update_element`, `delete_elements`, `link_element`, `rename_diagram`, `list_comments`, `add_comment`, `reply_comment`, `resolve_comment`). Hay dos lugares posibles, cada uno con su MCP y las mismas herramientas:
 
-Si esas herramientas no están en la sesión, decilo y frená. No escribas el JSON de Excalidraw a mano: el layout y las flechas los arma el MCP. La configuración está en `docs/mcp.md` del repo de Serrugrams.
+| | **Local** (por defecto) | **Nube** |
+| --- | --- | --- |
+| MCP | `serrugrams` | `serrugrams-nube` |
+| Dónde | `docs/diagramas/` del repo que describe, versionado con el código | Serrugrams en la nube, que se abre en el navegador desde cualquier compu |
+| Rutas | desde `docs/diagramas`: `panorama.excalidraw`, `pagos/detalle.excalidraw` | con una carpeta por repo: `<repo>/panorama.excalidraw`, `<repo>/pagos/detalle.excalidraw` |
+
+**Cuál usar:**
+
+- Si piden la nube («…en la nube», «subilo a Serrugrams nube»), la nube.
+- Si no dicen nada, local. Si en la sesión solo está uno de los dos MCP, ese.
+- Si piden uno y sus herramientas no están en la sesión, decilo y frená. No caigas en el otro sin preguntar.
+
+En todo lo que sigue, «el MCP» es el que corresponde. No escribas el JSON de Excalidraw a mano: el layout y las flechas los arma el MCP. La configuración está en `docs/mcp.md` y `docs/nube.md` del repo de Serrugrams.
 
 Hay dos pedidos posibles: diagramar algo (pasos 1 a 5) o revisar comentarios (paso 6).
 
 ## 1. Ubicarse
 
 1. Identificá el repo: su raíz (`git rev-parse --show-toplevel`) y su nombre (`org/repo` del remoto; si no hay remoto, el nombre de la carpeta).
-2. Llamá a `list_diagrams`. Devuelve la raíz de los diagramas. Tiene que ser `<raíz del repo>/docs/diagramas`, o la carpeta que ese repo ya use para sus diagramas. Si apunta a otro repo, frená y avisá: el MCP se lanzó desde otro lado y escribiría en el lugar equivocado.
-3. Si ya hay diagramas, leé con `read_diagram` el panorama y los detalles que toquen el pedido. Lo que existe se actualiza, no se duplica:
+2. Llamá a `list_diagrams`. Devuelve la raíz de los diagramas.
+   - **Local:** tiene que ser `<raíz del repo>/docs/diagramas`, o la carpeta que ese repo ya use para sus diagramas. Si apunta a otro repo, frená y avisá: el MCP se lanzó desde otro lado y escribiría en el lugar equivocado.
+   - **Nube:** la raíz es la de la nube (`vercel-blob:…`) y ahí conviven los diagramas de todos los repos, y también otros que la persona subió a mano. Lo de este repo va en la carpeta `<repo>/`, con el nombre corto del repo (sin la organización). Si esa carpeta ya existe, es la de este repo: trabajá ahí. No toques diagramas fuera de ella.
+3. Si ya hay diagramas (en la nube, los de `<repo>/`), leé con `read_diagram` el panorama y los detalles que toquen el pedido. Lo que existe se actualiza, no se duplica:
    - Usá `add_elements`, `update_element` y `delete_elements`. No uses `overwrite: true` sobre un diagrama existente: se pierden las posiciones que la persona acomodó a mano.
    - No muevas cajas que no hace falta mover.
    - Reusá los ids y los nombres que ya están.
 
-La carpeta `docs/diagramas` no hace falta crearla: aparece con el primer diagrama.
+Las carpetas no hace falta crearlas: aparecen con el primer diagrama.
 
 ## 2. Entender antes de dibujar
 
@@ -42,7 +56,7 @@ Si el pedido es acotado («diagramá cómo funciona el login»), investigá ese 
 
 ### Panorama
 
-`panorama.excalidraw` tiene una caja por sistema. Es el mapa para ubicarse, no el lugar de los detalles.
+`panorama.excalidraw` (en la nube, `<repo>/panorama.excalidraw`) tiene una caja por sistema. Es el mapa para ubicarse, no el lugar de los detalles.
 
 - **Entra:** cada pieza que se despliega o corre por separado, cada base o cola, cada integración externa y los actores que usan el sistema.
 - **No entra:** clases, funciones, endpoints sueltos, librerías, tablas individuales.
@@ -52,7 +66,7 @@ Si el pedido es acotado («diagramá cómo funciona el login»), investigá ese 
 
 ### Detalle
 
-Un detalle por sistema, en una subcarpeta: `<sistema>/detalle.excalidraw` (por ejemplo `pagos/detalle.excalidraw`). Si un sistema tiene varios flujos que no entran en uno, sumá `<sistema>/<flujo>.excalidraw`.
+Un detalle por sistema, en una subcarpeta: `<sistema>/detalle.excalidraw` (por ejemplo `pagos/detalle.excalidraw`; en la nube, `<repo>/pagos/detalle.excalidraw`). Si un sistema tiene varios flujos que no entran en uno, sumá `<sistema>/<flujo>.excalidraw`.
 
 - **Hace falta** cuando el sistema tiene cuatro o más piezas internas que importan, o un flujo que no se entiende desde el panorama, o cuando es justo lo que pidieron.
 - **No hace falta** para una base, una cola o un servicio externo, ni para un sistema que es una sola pieza: la caja del panorama alcanza.
@@ -61,7 +75,7 @@ Un detalle por sistema, en una subcarpeta: `<sistema>/detalle.excalidraw` (por e
 ### Cómo armarlos
 
 1. Creá primero los detalles y después el panorama (o actualizalo).
-2. Linkeá cada caja del panorama a su detalle con `link_element`, que valida que el destino exista. Una caja sin detalle queda sin link.
+2. Linkeá cada caja del panorama a su detalle con `link_element`, que valida que el destino exista. Una caja sin detalle queda sin link. En la nube, el destino lleva la carpeta del repo: `<repo>/pagos/detalle.excalidraw`.
 3. Convenciones del MCP: rectángulo para servicio o componente, elipse para datos o actor externo, rombo para decisión. Flecha sólida para llamada sincrónica, punteada (`dashed`) para eventos y colas, de puntos (`dotted`) para dependencias opcionales. La etiqueta de la flecha es el protocolo o el verbo: «HTTPS», «publica PedidoPagado».
 4. Ids legibles (`api`, `pedidos-db`) y labels de una a cuatro palabras. La tecnología puede ir en una segunda línea: `Pedidos\n(Go)`.
 5. Dejá que el layout automático ubique las cajas; `direction: "TB"` cuando el flujo se lee mejor de arriba hacia abajo.
@@ -94,13 +108,14 @@ Contá, en pocas líneas:
 
 - Qué diagramas creaste o actualizaste, con sus rutas.
 - Cuántas dudas quedaron como comentarios y sobre qué.
-- Que los archivos quedaron sin commitear (no commitees salvo que te lo pidan).
+- **Local:** que los archivos quedaron sin commitear (no commitees salvo que te lo pidan).
+- **Nube:** el link para abrir el panorama, que devuelven `list_diagrams` y `create_diagram` en `open` (si la persona tenía la app abierta, ve los cambios al volver a la pestaña). En la nube no hay nada que commitear.
 
-Después preguntá: «¿Lo sumo a tu vista?». Si dicen que sí, corré el comando que devuelven `list_diagrams` y `create_diagram` en `addToView`. Levanta el servidor si no está corriendo, suma la carpeta a la vista y abre http://localhost:4747. No lo corras sin el sí: la vista es personal.
+**Solo en local**, después preguntá: «¿Lo sumo a tu vista?». Si dicen que sí, corré el comando que devuelven `list_diagrams` y `create_diagram` en `addToView`. Levanta el servidor si no está corriendo, suma la carpeta a la vista y abre http://localhost:4747. No lo corras sin el sí: la vista es personal.
 
 ## 6. Revisar los comentarios de un diagrama
 
-Cuando piden «revisá los comentarios del diagrama»:
+Cuando piden «revisá los comentarios del diagrama» (de la nube si lo dicen, si no del repo):
 
 1. Si no dijeron cuál, `list_diagrams` muestra cuántos comentarios abiertos tiene cada uno.
 2. `list_comments` con `include_resolved: false`, y `read_diagram` del mismo diagrama.

@@ -2,14 +2,18 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { serve, type ServerType } from "@hono/node-server";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { emptyDiagram } from "../shared/types.ts";
 import { cloudApp, SESSION_COOKIE } from "./cloud.ts";
 import { MemoryStore } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 
 const servers: ServerType[] = [];
-function start(password: string | undefined): Promise<string> {
-  const app = cloudApp({ ws: new Workspace(new MemoryStore()), password });
+const MCP_TOKEN = "token-de-test";
+function start(password: string | undefined, mcpToken?: string): Promise<string> {
+  const ws = new Workspace(new MemoryStore());
+  const app = cloudApp({ ws, password, mcpToken, workflow: "# Diagramar un sistema\n\nTexto de la skill." });
   return new Promise((resolve) => {
     const s = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" }, (info) => resolve(`http://127.0.0.1:${info.port}`));
     servers.push(s);
@@ -20,7 +24,7 @@ after(() => servers.forEach((s) => s.close()));
 let base: string;
 let cookie = "";
 before(async () => {
-  base = await start("secreto-de-test");
+  base = await start("secreto-de-test", MCP_TOKEN);
 });
 
 async function call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
@@ -115,4 +119,55 @@ test("no existen los endpoints que solo sirven en local", async () => {
   for (const p of ["/api/refs", "/api/pick", "/api/locate", "/api/complete?prefix=~", "/api/events"]) {
     assert.equal((await call("GET", p)).status, 404, p);
   }
+});
+
+// --- MCP remoto ---
+
+async function mcpClient(token: string) {
+  const client = new Client({ name: "test", version: "0" });
+  await client.connect(new StreamableHTTPClientTransport(new URL(base + "/api/mcp"), { requestInit: { headers: { authorization: `Bearer ${token}` } } }));
+  return client;
+}
+
+test("el MCP pide su token: sin token o con otro, 401; la cookie de la app no alcanza", async () => {
+  assert.equal((await fetch(base + "/api/mcp", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status, 401);
+  assert.equal((await fetch(base + "/api/mcp", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer otro" }, body: "{}" })).status, 401);
+  assert.equal((await fetch(base + "/api/mcp", { method: "POST", headers: { "content-type": "application/json", cookie }, body: "{}" })).status, 401);
+  await assert.rejects(mcpClient("otro"));
+});
+
+test("sin token configurado, el MCP está cerrado", async () => {
+  const other = await start("x");
+  const res = await fetch(other + "/api/mcp", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " }, body: "{}" });
+  assert.equal(res.status, 503);
+});
+
+test("el MCP remoto crea y lee diagramas en el mismo store que la app", async () => {
+  const client = await mcpClient(MCP_TOKEN);
+  const tools = (await client.listTools()).tools.map((t) => t.name);
+  for (const t of ["list_diagrams", "read_diagram", "create_diagram", "add_comment"]) assert.ok(tools.includes(t), t);
+  const created = await client.callTool({
+    name: "create_diagram",
+    arguments: { path: "remoto/panorama.excalidraw", nodes: [{ id: "api", label: "API" }, { id: "db", label: "DB", type: "ellipse" }], edges: [{ from: "api", to: "db", label: "SQL" }] },
+  });
+  assert.ok(!created.isError, JSON.stringify(created.content));
+  const text = (created.content as any[])[0].text as string;
+  assert.ok(!text.includes("addToView"), "en la nube no hay vista local que sumar");
+  assert.equal(JSON.parse(text).open, `${base}/#/nube/remoto/panorama.excalidraw`);
+  // Lo ve la app (misma API, con cookie).
+  const tree = (await call("GET", "/api/tree")).json;
+  assert.ok(tree.entries.some((e: any) => e.path === "nube/remoto/panorama.excalidraw"));
+  const listed = await client.callTool({ name: "list_diagrams", arguments: {} });
+  assert.match((listed.content as any[])[0].text, /remoto\/panorama\.excalidraw/);
+  await client.close();
+});
+
+test("el MCP remoto ofrece la skill como el prompt diagramar", async () => {
+  const client = await mcpClient(MCP_TOKEN);
+  assert.ok((await client.listPrompts()).prompts.some((p) => p.name === "diagramar"));
+  const prompt = await client.getPrompt({ name: "diagramar", arguments: { pedido: "el checkout" } });
+  const text = (prompt.messages[0].content as any).text as string;
+  assert.match(text, /Texto de la skill/);
+  assert.match(text, /el checkout/);
+  await client.close();
 });

@@ -5,9 +5,14 @@ import { BlobStore } from "./blobstore.ts";
 import { cloudApp } from "./cloud.ts";
 import { Workspace } from "./workspace.ts";
 
+/** La skill, embebida por `serrugrams cloud build` (en la función no hay carpeta skills/). */
+declare const __SERRUGRAMS_SKILL__: string | undefined;
+
 const app = cloudApp({
   ws: new Workspace(new BlobStore(process.env.SERRUGRAMS_BLOB_PREFIX || "diagramas")),
   password: process.env.SERRUGRAMS_PASSWORD,
+  mcpToken: process.env.SERRUGRAMS_MCP_TOKEN,
+  workflow: typeof __SERRUGRAMS_SKILL__ === "string" ? __SERRUGRAMS_SKILL__ : null,
   secure: true,
 });
 

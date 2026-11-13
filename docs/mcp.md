@@ -15,6 +15,8 @@ La raíz sale de `--root`, si no de `SERRUGRAMS_ROOT`, si no del directorio actu
 
 Con el paquete npm instalado (o por `npx`), el equivalente es `serrugrams mcp --root /ruta/a/mis-diagramas`, que corre el servidor ya compilado. En la configuración de cualquier cliente: `"command": "npx", "args": ["-y", "serrugrams", "mcp", "--root", "/ABS/diagramas"]`.
 
+Hay también un **MCP en la nube**, por HTTP, con las mismas herramientas sobre los diagramas de Serrugrams en Vercel: ver [nube.md](nube.md#mcp-en-la-nube). Las herramientas viven en `server/mcpserver.ts` y las usan los dos.
+
 ## Herramientas
 
 | Tool | Qué hace |
@@ -47,6 +49,8 @@ Expone dos prompts: `system_design_conventions` (las convenciones, que también 
   ```bash
   ln -s /ABS/serrugrams/skills/serrugrams ~/.claude/skills/serrugrams
   ```
+
+- **Local o nube:** la skill diagrama en el `docs/diagramas` del repo, o en Serrugrams en la nube (MCP `serrugrams-nube`, una carpeta por repo) si se lo pedís. Ver [nube.md](nube.md#mcp-en-la-nube).
 
 - **Otros clientes:** el MCP sirve ese mismo archivo como el prompt `diagramar`, con un argumento opcional `pedido`. En Claude Code también aparece, como `/mcp__serrugrams__diagramar`.
 

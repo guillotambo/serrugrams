@@ -6,7 +6,7 @@ Diagramas de sistemas sobre [Excalidraw](https://github.com/excalidraw/excalidra
 - **Links entre diagramas.** Cualquier elemento puede llevar a otro diagrama. Hay historial para volver atrás y se recuerda dónde estabas en cada uno.
 - **Comentarios.** Se anclan a un elemento o a un punto del lienzo y se guardan aparte, en `<diagrama>.excalidraw.comments.json`. Al exportar elegís si van o no.
 - **MCP para agentes.** Claude Code, Codex, Cursor o cualquier cliente MCP puede listar, leer, crear y editar diagramas. Si la app está abierta, los cambios aparecen en vivo. Ver [docs/mcp.md](docs/mcp.md).
-- **En la nube.** La app completa en https://serrugrams.vercel.app (Vercel + Vercel Blob, con contraseña), para usarla desde cualquier computadora. Ver [docs/nube.md](docs/nube.md).
+- **En la nube.** La app completa en https://serrugrams.vercel.app (Vercel + Vercel Blob, con contraseña), para usarla desde cualquier computadora, y un MCP por HTTP para que los agentes editen esos mismos diagramas. Ver [docs/nube.md](docs/nube.md).
 - **Sitio para compartir.** `serrugrams site` arma una versión estática de solo lectura para subir a Vercel. Ver [docs/sitio.md](docs/sitio.md).
 - **Skill para diagramar.** Le pedís a Claude Code «diagramá cómo funciona X» en cualquier repo: investiga el código y deja los diagramas en `docs/diagramas/`, del panorama al detalle. Ver [Diagramar con Claude](#diagramar-con-claude).
 
@@ -91,7 +91,7 @@ El servidor escucha solo en `127.0.0.1`, rechaza pedidos con `Host` u `Origin` q
 
 ## Estructura
 
-- `server/` — dónde se guardan los archivos (`store.ts`, `blobstore.ts`), la nube (`cloud.ts`, `vercel.ts`, `cloudtools.ts`), sitio estático (`site.ts`), servidor HTTP (`index.ts`), la vista y sus referencias (`refs.ts`), acceso a disco (`workspace.ts`), MCP (`mcp.ts`, `builder.ts`, `layout.ts`).
+- `server/` — las herramientas del MCP (`mcpserver.ts`, usadas por el local `mcp.ts` y por la nube), dónde se guardan los archivos (`store.ts`, `blobstore.ts`), la nube (`cloud.ts`, `vercel.ts`, `cloudtools.ts`), sitio estático (`site.ts`), servidor HTTP (`index.ts`), la vista y sus referencias (`refs.ts`), acceso a disco (`workspace.ts`), MCP (`mcp.ts`, `builder.ts`, `layout.ts`).
 - `src/` — interfaz en React.
 - `shared/types.ts` — formatos compartidos.
 - `dist/` — salida de `pnpm build` (no se versiona): `dist/ui` es la interfaz y `dist/server` + `dist/shared` el servidor compilado a JavaScript. Es lo que viaja en el paquete npm junto con `bin/`.
@@ -113,5 +113,5 @@ El servidor escucha solo en `127.0.0.1`, rechaza pedidos con `Host` u `Origin` q
 - Los comentarios no tienen control de concurrencia: si dos procesos los editan a la vez, gana el último.
 - Paquete npm: `pnpm build` compila el servidor a `dist/server` y `bin/serrugrams.js` lo usa cuando no está el fuente (en el repo clonado sigue corriendo el TypeScript). Probado instalando el tarball de `npm pack` en una carpeta aparte (UI con fuentes y MCP con las 12 herramientas). Falta publicarlo (`npm publish`), confirmar que el nombre `serrugrams` esté libre y definir la licencia. El paquete pesa unos 15 MB por el bundle y las fuentes de Excalidraw.
 - Sitio de solo lectura (`serrugrams site`): probado sirviendo la salida con un servidor estático simple (sin `/api`), con links entre diagramas, foco por `#elemento`, deep link al recargar, comentarios en solo lectura y buscador sin «Crear»; tests en `server/site.test.ts`. Desplegado en Vercel con los ejemplos: anda igual, y el dominio corto de producción queda público (detalle en docs/sitio.md).
-- Nube (`serrugrams cloud`): desplegada en Vercel con Blob privado. Probado: API por HTTP contra el Blob real (crear, guardar, conflicto 409, renombrar carpeta con links y comentarios, carpetas vacías, papelera) y 401 en todo sin sesión; la UI en la nube local (login, edición y guardado, relectura al volver a la pestaña, diagramas nuevos). Falta entrar a la UI desplegada con la contraseña y probarla en dos compus de verdad. Tests en `server/workspace.test.ts` y `server/cloud.test.ts`.
+- Nube (`serrugrams cloud`): desplegada en Vercel con Blob privado. Probado: API por HTTP contra el Blob real (crear, guardar, conflicto 409, renombrar carpeta con links y comentarios, carpetas vacías, papelera) y 401 en todo sin sesión; la UI en la nube local (login, edición y guardado, relectura al volver a la pestaña, diagramas nuevos). MCP remoto probado contra el deploy (401 sin token, 12 herramientas, crear, listar y leer, prompt `diagramar` con la skill) y con el cliente oficial en `server/cloud.test.ts`; falta usarlo desde Claude Code. Tests en `server/workspace.test.ts` y `server/cloud.test.ts`.
 - Colaboración en vivo entre varias personas: no implementado. Propuesta de diseño en [docs/cloud.md](docs/cloud.md).

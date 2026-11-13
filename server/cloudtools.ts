@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { cloudApp } from "./cloud.ts";
+import { skillBody } from "./mcpserver.ts";
 import { defaultUiDir } from "./site.ts";
 import { DiskStore } from "./store.ts";
 import { Workspace } from "./workspace.ts";
@@ -16,6 +17,16 @@ import { Workspace } from "./workspace.ts";
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const CLOUD_META = '<meta name="serrugrams-cloud" content="1" />';
 const MARKER = ".serrugrams-cloud";
+
+/** La skill de diagramar, del repo o del paquete (viaja en skills/). */
+async function readSkill(): Promise<string | null> {
+  for (const up of ["..", "../.."]) {
+    try {
+      return skillBody(await fs.readFile(path.resolve(here, up, "skills", "serrugrams", "SKILL.md"), "utf8"));
+    } catch {}
+  }
+  return null;
+}
 
 const withCloudMeta = (html: string) => html.replace(/<head>/i, `<head>\n    ${CLOUD_META}\n    <meta name="robots" content="noindex" />`);
 
@@ -46,6 +57,7 @@ export async function buildCloud(outArg: string): Promise<string> {
     configFile: false,
     logLevel: "warn",
     publicDir: false, // public/ (fuentes, favicon) es de la UI, no de la función
+    define: { __SERRUGRAMS_SKILL__: JSON.stringify(await readSkill()) },
     build: {
       ssr: entry,
       outDir: funcDir,
@@ -73,11 +85,11 @@ export async function buildCloud(outArg: string): Promise<string> {
 }
 
 /** La nube en tu máquina: la misma API y la misma UI, sobre una carpeta del disco en vez de Blob. */
-export async function serveCloudLocal(opts: { root: string; password: string; port: number }): Promise<void> {
+export async function serveCloudLocal(opts: { root: string; password: string; port: number; mcpToken?: string }): Promise<void> {
   const uiDir = defaultUiDir();
   if (!uiDir) throw new Error("No hay build de la UI. Corré `pnpm build` primero.");
   const app = new Hono();
-  app.route("/", cloudApp({ ws: new Workspace(new DiskStore(opts.root)), password: opts.password, secure: false }));
+  app.route("/", cloudApp({ ws: new Workspace(new DiskStore(opts.root)), password: opts.password, mcpToken: opts.mcpToken, workflow: await readSkill(), secure: false }));
   const html = withCloudMeta(await fs.readFile(path.join(uiDir, "index.html"), "utf8"));
   app.get("/", (c) => c.html(html));
   app.get("/index.html", (c) => c.html(html));
@@ -111,7 +123,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     } else if (cmd === "local") {
       const root = flag("--root");
       if (!root) throw new Error("Falta --root <carpeta>");
-      await serveCloudLocal({ root, password: flag("--password", process.env.SERRUGRAMS_PASSWORD ?? "")!, port: Number(flag("--port", "4950")) });
+      await serveCloudLocal({ root, password: flag("--password", process.env.SERRUGRAMS_PASSWORD ?? "")!, port: Number(flag("--port", "4950")), mcpToken: flag("--mcp-token", process.env.SERRUGRAMS_MCP_TOKEN) });
     } else {
       throw new Error("Uso: serrugrams cloud build [--out carpeta] | serrugrams cloud local --root <carpeta> [--password x] [--port 4950]");
     }
