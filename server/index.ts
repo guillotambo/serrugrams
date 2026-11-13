@@ -1,30 +1,53 @@
-// Servidor local: sirve la UI, la API de archivos y los eventos en vivo.
+// Servidor local: sirve la UI, la API de archivos y los eventos en vivo. Uno solo para todas las referencias
+// de la vista (ver docs/referencias.md y server/refs.ts).
+// Uso: node server/index.ts [rutas a agregar…] [--port 4747] [--workspace archivo.json] [--dev]
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import chokidar from "chokidar";
+import os from "node:os";
 import path from "node:path";
-import { existsSync, promises as fs } from "node:fs";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Workspace, WorkspaceError, hashOf } from "./workspace.ts";
-import { COMMENTS_SUFFIX, DIAGRAM_EXT, emptyDiagram, type ServerEvent } from "../shared/types.ts";
+import { WorkspaceError } from "./workspace.ts";
+import { Refs, completePath } from "./refs.ts";
+import { emptyDiagram, refIdOf, type ServerEvent } from "../shared/types.ts";
 
 const args = process.argv.slice(2);
 function flag(name: string): string | undefined {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 }
+const VALUE_FLAGS = ["--port", "--workspace", "--root"];
 const dev = args.includes("--dev");
-const positional = args.filter((a, i) => !a.startsWith("--") && !["--port", "--root"].includes(args[i - 1] ?? ""));
-const root = path.resolve(flag("--root") ?? positional[0] ?? process.env.SERRUGRAMS_ROOT ?? (dev ? "examples" : process.cwd()));
-const port = Number(flag("--port") ?? process.env.SERRUGRAMS_PORT ?? 4747);
+const positional = args.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1] ?? ""));
 const here = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.join(here, "..");
+const home = process.env.SERRUGRAMS_HOME ? path.resolve(process.env.SERRUGRAMS_HOME) : path.join(os.homedir(), ".serrugrams");
+// En desarrollo, una vista aparte con los ejemplos y otro puerto, para no chocar con el servidor de todos los días.
+const workspaceFile = path.resolve(flag("--workspace") ?? (dev ? path.join(repoRoot, ".serrugrams", "workspace.dev.json") : path.join(home, "workspace.json")));
+const port = Number(flag("--port") ?? process.env.SERRUGRAMS_PORT ?? (dev ? 4848 : 4747));
+const toAdd = [...positional, ...(flag("--root") ? [flag("--root")!] : []), ...(dev ? [path.join(repoRoot, "examples")] : [])];
 // La UI construida: junto al servidor compilado (dist/server -> dist/ui) o, corriendo el fuente, en dist/ui del repo.
 const distDir = [path.join(here, "..", "ui"), path.join(here, "..", "dist", "ui")].find((d) => existsSync(path.join(d, "index.html"))) ?? path.join(here, "..", "dist", "ui");
 
-await fs.mkdir(root, { recursive: true });
-const ws = new Workspace(root);
+// --- Eventos en vivo ---
+type Listener = (e: ServerEvent) => void;
+const listeners = new Set<Listener>();
+function broadcast(e: ServerEvent) {
+  for (const l of listeners) l(e);
+}
+
+const refs = new Refs(workspaceFile, broadcast);
+await refs.start();
+for (const p of toAdd) {
+  try {
+    await refs.add(p);
+  } catch (err) {
+    console.error(`No se pudo agregar ${p}: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
 const app = new Hono();
 
 // --- Seguridad: solo localhost, y las escrituras solo desde nuestra propia página. ---
@@ -59,60 +82,83 @@ const q = (c: any, name: string): string => {
   return v;
 };
 
-app.get("/api/tree", async (c) => c.json({ rootName: ws.rootName, rootPath: ws.root, entries: await ws.tree() }));
+// --- Vista ---
+app.get("/api/tree", async (c) => c.json(await refs.tree()));
 
+app.post("/api/refs", async (c) => {
+  const body = await c.req.json();
+  return c.json({ ref: await refs.add(body.path, body.id) });
+});
+
+app.patch("/api/refs", async (c) => {
+  const body = await c.req.json();
+  return c.json({ id: await refs.rename(body.id, body.next) });
+});
+
+app.delete("/api/refs", async (c) => {
+  await refs.remove(q(c, "id"));
+  return c.json({ ok: true });
+});
+
+app.get("/api/complete", async (c) => c.json({ items: await completePath(c.req.query("prefix") ?? "") }));
+
+// --- Diagramas (rutas globales: `<referencia>/<ruta>`) ---
 app.get("/api/file", async (c) => {
   const p = q(c, "path");
-  const { content, hash } = await ws.readDiagram(p);
+  const { ws, rel } = refs.locate(p);
+  const { content, hash } = await ws.readDiagram(rel);
   return c.json({ path: p, content, hash });
 });
 
 app.put("/api/file", async (c) => {
-  const p = q(c, "path");
+  const { ws, rel } = refs.locate(q(c, "path"));
   const body = await c.req.json();
-  const hash = await ws.writeDiagram(p, body.content, { baseHash: body.baseHash });
+  const hash = await ws.writeDiagram(rel, body.content, { baseHash: body.baseHash });
   return c.json({ hash });
 });
 
 app.post("/api/file", async (c) => {
   const body = await c.req.json();
-  const hash = await ws.writeDiagram(body.path, body.content ?? emptyDiagram(), { mustNotExist: true });
-  if (body.comments) await ws.writeComments(body.path, body.comments);
+  const { ws, rel } = refs.locate(body.path);
+  const hash = await ws.writeDiagram(rel, body.content ?? emptyDiagram(), { mustNotExist: true });
+  if (body.comments) await ws.writeComments(rel, body.comments);
   return c.json({ hash });
 });
 
 app.delete("/api/entry", async (c) => {
-  await ws.trash(q(c, "path"));
+  const { ws, rel } = refs.locate(q(c, "path"));
+  await ws.trash(rel);
   return c.json({ ok: true });
 });
 
 app.post("/api/rename", async (c) => {
   const body = await c.req.json();
-  await ws.rename(body.from, body.to);
+  if (refIdOf(body.from ?? "") !== refIdOf(body.to ?? "")) throw new WorkspaceError(400, "No se puede mover entre referencias distintas");
+  const from = refs.locate(body.from);
+  const to = refs.locate(body.to);
+  await from.ws.rename(from.rel, to.rel);
+  await refs.moved(from.ws.resolve(from.rel), to.ws.resolve(to.rel));
   return c.json({ ok: true });
 });
 
 app.post("/api/dir", async (c) => {
   const body = await c.req.json();
-  await ws.mkdir(body.path);
+  const { ws, rel } = refs.locate(body.path);
+  await ws.mkdir(rel);
   broadcast({ type: "tree" });
   return c.json({ ok: true });
 });
 
-app.get("/api/comments", async (c) => c.json(await ws.readComments(q(c, "path"))));
-
-app.put("/api/comments", async (c) => {
-  const p = q(c, "path");
-  await ws.writeComments(p, await c.req.json());
-  return c.json({ ok: true });
+app.get("/api/comments", async (c) => {
+  const { ws, rel } = refs.locate(q(c, "path"));
+  return c.json(await ws.readComments(rel));
 });
 
-// --- Eventos en vivo (SSE) ---
-type Listener = (e: ServerEvent) => void;
-const listeners = new Set<Listener>();
-function broadcast(e: ServerEvent) {
-  for (const l of listeners) l(e);
-}
+app.put("/api/comments", async (c) => {
+  const { ws, rel } = refs.locate(q(c, "path"));
+  await ws.writeComments(rel, await c.req.json());
+  return c.json({ ok: true });
+});
 
 app.get("/api/events", (c) =>
   streamSSE(c, async (stream) => {
@@ -140,42 +186,6 @@ app.get("/api/events", (c) =>
   }),
 );
 
-// --- Observador de la carpeta: el disco es la fuente de verdad. ---
-let treeTimer: NodeJS.Timeout | null = null;
-function treeChanged() {
-  if (treeTimer) clearTimeout(treeTimer);
-  treeTimer = setTimeout(() => broadcast({ type: "tree" }), 80);
-}
-const watcher = chokidar.watch(root, {
-  ignoreInitial: true,
-  ignored: (p, stats) => {
-    const base = path.basename(p);
-    if (p !== root && (base === "node_modules" || base === "dist" || base.startsWith("."))) return true;
-    if (stats?.isFile()) return !(p.endsWith(DIAGRAM_EXT) || p.endsWith(DIAGRAM_EXT + COMMENTS_SUFFIX));
-    return false;
-  },
-});
-async function onFile(abs: string, kind: "add" | "change" | "unlink") {
-  const rel = ws.toRel(abs);
-  if (rel.endsWith(COMMENTS_SUFFIX)) {
-    broadcast({ type: "comments", path: rel.slice(0, -COMMENTS_SUFFIX.length) });
-    treeChanged();
-    return;
-  }
-  if (kind === "change" || kind === "add") {
-    try {
-      broadcast({ type: "file", path: rel, hash: hashOf(await fs.readFile(abs, "utf8")) });
-    } catch {}
-  }
-  treeChanged();
-}
-watcher
-  .on("add", (p) => onFile(p, "add"))
-  .on("change", (p) => onFile(p, "change"))
-  .on("unlink", (p) => onFile(p, "unlink"))
-  .on("addDir", treeChanged)
-  .on("unlinkDir", treeChanged);
-
 // --- UI estática (build de producción) ---
 if (!dev) {
   if (!existsSync(path.join(distDir, "index.html"))) {
@@ -188,6 +198,7 @@ if (!dev) {
 }
 
 serve({ fetch: app.fetch, port, hostname: "127.0.0.1" }, () => {
-  console.log(`Serrugrams · carpeta: ${root}`);
+  console.log(`Serrugrams · vista: ${workspaceFile}`);
+  for (const r of refs.info()) console.log(`  ${r.id}: ${r.path}${r.missing ? " (no se encuentra)" : ""}`);
   console.log(dev ? `API en http://127.0.0.1:${port} (UI en http://localhost:5173)` : `Abrí http://localhost:${port}`);
 });

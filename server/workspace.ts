@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import {
-  COMMENTS_SUFFIX, DIAGRAM_EXT, emptyDiagram, makeDiagramLink, parseDiagramLink,
+  COMMENTS_SUFFIX, DIAGRAM_EXT, emptyDiagram, makeDiagramLink, parseDiagramLink, resolveLinkTarget,
   type CommentsFile, type ExcalidrawFile, type RelPath, type TreeEntry,
 } from "../shared/types.ts";
 
@@ -223,22 +223,34 @@ export class Workspace {
     await this.rewriteLinks(from, to, stat.isDirectory());
   }
 
-  /** Tras un rename, actualiza los links de los demás diagramas que apuntaban a la ruta vieja. */
+  /**
+   * Tras un rename, actualiza los links de los demás diagramas que apuntaban a la ruta vieja. Los links son
+   * relativos a la raíz de los diagramas del repo, que puede estar más adentro que esta raíz (un diagrama suelto
+   * de la vista tiene como raíz el repo entero): se resuelven igual que en la UI y se reescriben con la misma base.
+   */
   private async rewriteLinks(from: RelPath, to: RelPath, isDir: boolean): Promise<void> {
     const map = (p: RelPath): RelPath | null => {
       if (!isDir) return p === from ? to : null;
       return p.startsWith(from + "/") ? to + p.slice(from.length) : null;
     };
-    for (const entry of await this.tree()) {
+    const entries = await this.tree();
+    const files = new Set(entries.filter((e) => e.type === "file").map((e) => e.path));
+    // Se resuelve contra cómo estaba antes del rename: la ruta vieja "existe".
+    const existed = (p: RelPath) => files.has(p) || p === from || (isDir && p.startsWith(from + "/"));
+    const resolve = (owner: RelPath, raw: RelPath) => resolveLinkTarget("_/" + owner, raw, (p) => existed(p.slice(2))).slice(2);
+    for (const entry of entries) {
       if (entry.type !== "file") continue;
-      if (!entry.links?.some((l) => map(l) !== null)) continue;
+      if (!entry.links?.some((l) => map(resolve(entry.path, l)) !== null)) continue;
       const { content, hash } = await this.readDiagram(entry.path);
       let changed = false;
       for (const el of content.elements) {
         const parsed = parseDiagramLink(el.link);
-        const next = parsed && map(parsed.path);
+        if (!parsed) continue;
+        const resolved = resolve(entry.path, parsed.path);
+        const next = map(resolved);
         if (!next) continue;
-        el.link = makeDiagramLink(next, parsed!.elementId);
+        const base = resolved.slice(0, resolved.length - parsed.path.length).replace(/\/$/, "");
+        el.link = makeDiagramLink(base && next.startsWith(base + "/") ? next.slice(base.length + 1) : next, parsed.elementId);
         el.version = (el.version ?? 1) + 1;
         el.versionNonce = Math.floor(Math.random() * 2 ** 31);
         el.updated = Date.now();

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CaptureUpdateAction, newElementWith } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { DIAGRAM_EXT, makeDiagramLink, parseDiagramLink, type Comment, type RelPath, type TreeEntry } from "../shared/types.ts";
+import { DIAGRAM_EXT, linkPathFor, makeDiagramLink, parseDiagramLink, refIdOf, resolveLinkTarget, type Comment, type RefInfo, type RelPath, type TreeEntry } from "../shared/types.ts";
+import { AddRef } from "./AddRef.tsx";
 import { api, ApiError, subscribe } from "./api.ts";
 import { bus, onToasts, toast, type Toast } from "./bus.ts";
 import { CommentPins, CommentsPanel, anchorAt, anchorForElement, anchorPoint, useComments, type Draft } from "./Comments.tsx";
@@ -12,7 +13,7 @@ import { MetaPopover, META_FIELDS } from "./MetaPopover.tsx";
 import { Palette } from "./Palette.tsx";
 import { Tooltips } from "./Tooltip.tsx";
 import { Sidebar } from "./Sidebar.tsx";
-import { displayName, joinPath, load, sanitizeName, store } from "./util.ts";
+import { dirName, displayName, joinPath, load, sanitizeName, store } from "./util.ts";
 import { useViewStore, viewStore } from "./viewStore.ts";
 
 interface Loc {
@@ -31,7 +32,7 @@ let navCounter = 0;
 const STATUS_LABEL: Record<SaveStatus, string> = { saved: "Guardado", saving: "Guardando…", dirty: "Sin guardar", error: "Error al guardar" };
 
 export function App() {
-  const [rootName, setRootName] = useState("");
+  const [refs, setRefs] = useState<RefInfo[]>([]);
   const [entries, setEntries] = useState<TreeEntry[] | null>(null);
   const [nav, setNav] = useState<Nav>({ current: null, back: [], forward: [] });
   const [excalidraw, setExcalidraw] = useState<ExcalidrawImperativeAPI | null>(null);
@@ -62,24 +63,36 @@ export function App() {
   const { comments, update: updateComments } = useComments(current);
   const entriesRef = useRef<TreeEntry[]>([]);
   entriesRef.current = entries ?? [];
+  const refsRef = useRef<RefInfo[]>([]);
+  refsRef.current = refs;
+  const defaultDir = refs.find((r) => r.kind === "folder" && !r.missing)?.id ?? "";
 
   // --- Árbol y eventos en vivo ---
   const reloadTree = useCallback(() => {
-    api
+    return api
       .tree()
       .then((t) => {
-        setRootName(t.rootName);
+        // Se actualizan los refs a mano para que una navegación justo después ya vea lo nuevo.
+        refsRef.current = t.refs;
+        entriesRef.current = t.entries;
+        setRefs(t.refs);
         setEntries(t.entries);
-        document.title = `${t.rootName} · Serrugrams`;
       })
-      .catch(() => toast("No se pudo leer la carpeta", "error"));
+      .catch(() => toast("No se pudo leer la vista", "error"));
   }, []);
   useEffect(() => {
     reloadTree();
-    return subscribe((e) => {
+    // Respaldo por si la conexión de eventos quedó colgada (p. ej. el proxy de desarrollo tras reiniciar el servidor).
+    const onFocus = () => reloadTree();
+    window.addEventListener("focus", onFocus);
+    const stop = subscribe((e) => {
       if (e.type === "hello" || e.type === "tree") reloadTree();
       if (e.type !== "hello") bus.emit(e);
     });
+    return () => {
+      stop();
+      window.removeEventListener("focus", onFocus);
+    };
   }, [reloadTree]);
 
   useEffect(() => {
@@ -106,7 +119,7 @@ export function App() {
   };
   const navigate = useCallback((path: RelPath, focus?: string) => {
     if (!entriesRef.current.some((e) => e.path === path && e.type === "file")) {
-      toast(`"${displayName(path)}" no existe en esta carpeta`, "error");
+      toast(`"${displayName(path)}" no existe o no está en la vista`, "error");
       return;
     }
     setNav((n) => {
@@ -170,8 +183,14 @@ export function App() {
   }, [navigate]);
 
   // Si el diagrama actual desaparece del disco, volver al estado vacío.
+  // Se espera un momento y se vuelve a mirar: al renombrar, la ruta actual y el árbol nuevo llegan en momentos distintos.
   useEffect(() => {
-    if (entries && current && !entries.some((e) => e.path === current)) setNav((n) => ({ ...n, current: null }));
+    if (!entries || !current || entries.some((e) => e.path === current)) return;
+    const t = setTimeout(() => {
+      const cur = currentRef.current;
+      if (cur && !entriesRef.current.some((e) => e.path === cur)) setNav((n) => (n.current?.path === cur ? { ...n, current: null } : n));
+    }, 500);
+    return () => clearTimeout(t);
   }, [entries, current]);
 
   const mapPaths = (fn: (p: RelPath) => RelPath | null) =>
@@ -188,13 +207,51 @@ export function App() {
   const onRemoved = (path: RelPath, isDir: boolean) => mapPaths((p) => (p === path || (isDir && p.startsWith(path + "/")) ? null : p));
 
   // --- Links entre diagramas ---
+  // Los links guardados son relativos a la raíz de los diagramas del repo; acá se pasan a rutas globales y al revés.
+  const resolveLink = useCallback(
+    (from: RelPath, target: RelPath) => resolveLinkTarget(from, target, (p) => entriesRef.current.some((e) => e.path === p && e.type === "file")),
+    [],
+  );
+  /** Carpeta contra la que se escriben los links desde `from`: la raíz de la referencia o la carpeta del diagrama suelto. */
+  const linkBase = (from: RelPath) => {
+    // Lo mejor es imitar los links que el diagrama ya tiene (los del MCP son relativos a su --root).
+    for (const el of from === currentRef.current && excalidraw ? excalidraw.getSceneElements() : []) {
+      const raw = parseDiagramLink(el.link)?.path;
+      if (!raw) continue;
+      const resolved = resolveLink(from, raw);
+      if (entriesRef.current.some((e) => e.path === resolved)) return resolved.slice(0, -(raw.length + 1));
+    }
+    const ref = refsRef.current.find((r) => r.id === refIdOf(from));
+    return ref?.kind === "file" && ref.file ? dirName(ref.file) : refIdOf(from);
+  };
+  const followLink = useCallback((target: RelPath, elementId?: string) => {
+    const from = currentRef.current;
+    navigate(from ? resolveLink(from, target) : target, elementId);
+  }, [navigate, resolveLink]);
+
+  /**
+   * Un diagrama nuevo al lado de un diagrama suelto quedaría escondido: se suma a la vista como otra referencia.
+   * Devuelve la ruta con la que hay que abrirlo (la de su referencia nueva, o la misma si no hizo falta).
+   */
+  const pinIfHidden = async (path: RelPath): Promise<RelPath> => {
+    const ref = refsRef.current.find((r) => r.id === refIdOf(path));
+    if (ref?.kind !== "file") return path;
+    try {
+      const added = await api.addRef(ref.root + "/" + path.slice(ref.id.length + 1));
+      await reloadTree();
+      return added.ref.file ?? path;
+    } catch {
+      return path;
+    }
+  };
   const selectedElements = useMemo(() => {
     if (!excalidraw || selection.length === 0) return [];
     const ids = new Set(selection);
     return excalidraw.getSceneElements().filter((e) => ids.has(e.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [excalidraw, selection, status]);
-  const selectedLink = selectedElements.length === 1 ? parseDiagramLink(selectedElements[0].link) : null;
+  const parsedLink = selectedElements.length === 1 ? parseDiagramLink(selectedElements[0].link) : null;
+  const selectedLink = parsedLink && current ? { ...parsedLink, path: resolveLink(current, parsedLink.path) } : null;
 
   const setLink = (link: string | null) => {
     if (!excalidraw) return;
@@ -226,9 +283,17 @@ export function App() {
       if (created) {
         await api.createFile(path);
         addKnown(path);
+        // Para linkear sirve la ruta de siempre; para abrirlo, la de su referencia nueva.
+        const pinned = await pinIfHidden(path);
+        if (mode !== "link") path = pinned;
       }
       if (mode === "link") {
-        setLink(makeDiagramLink(path));
+        const stored = current ? linkPathFor(path, linkBase(current)) : null;
+        if (!stored) {
+          toast("Solo se puede linkear a diagramas de la misma referencia", "error");
+          return;
+        }
+        setLink(makeDiagramLink(stored));
         toast(`Link a "${displayName(path)}" agregado. Hacé clic en el ícono de link del elemento para abrirlo.`);
       } else {
         navigate(path);
@@ -287,7 +352,7 @@ export function App() {
         for (let i = 2; entriesRef.current.some((e) => e.path === path); i++) path = joinPath(dir, `${stem} ${i}${DIAGRAM_EXT}`);
         await api.createFile(path, data, Array.isArray(embedded) ? { version: 1, comments: embedded } : undefined);
         addKnown(path);
-        last = path;
+        last = await pinIfHidden(path);
       } catch {
         toast(`No se pudo importar "${file.name}"`, "error");
       }
@@ -345,14 +410,16 @@ export function App() {
     <div className="app" data-sidebar={sidebarOpen || undefined}>
       {sidebarOpen && (
         <Sidebar
-          rootName={rootName}
+          refs={refs}
           entries={entries ?? []}
           current={current}
+          defaultDir={defaultDir}
           onOpen={(p) => navigate(p)}
-          onCreated={(p) => {
+          onCreated={async (p) => {
             addKnown(p);
-            navigate(p);
+            navigate(await pinIfHidden(p));
           }}
+          onRefsChanged={reloadTree}
           onRenamed={onRenamed}
           onRemoved={onRemoved}
           onQuickOpen={() => setPalette("open")}
@@ -448,7 +515,8 @@ export function App() {
                 path={nav.current.path}
                 theme={theme}
                 focusElementId={nav.current.focus ? nav.current.focus + "#" + nav.current.n : undefined}
-                onNavigate={navigate}
+                linkPath={linkPathFor(nav.current.path, linkBase(nav.current.path)) ?? nav.current.path}
+                onNavigate={followLink}
                 onReady={setExcalidraw}
                 onSelection={setSelection}
                 onStatus={setStatus}
@@ -476,28 +544,43 @@ export function App() {
           ) : (
             entries && (
               <div className="welcome">
-                <h1>{entries.some((e) => e.type === "file") ? "Elegí un diagrama" : "Empezá tu primer diagrama"}</h1>
-                <p>
-                  Los diagramas se guardan como archivos <code>.excalidraw</code> en <strong>{rootName}</strong>. Podés linkear uno con otro para ir del panorama general al detalle.
-                </p>
-                <div className="welcome-actions">
-                  <button
-                    className="btn primary"
-                    onClick={() => {
-                      setSidebarOpen(true);
-                      setCreateSignal((n) => n + 1);
-                    }}
-                  >
-                    <Icon.plus />
-                    Nuevo diagrama
-                  </button>
-                  {entries.some((e) => e.type === "file") && (
-                    <button className="btn" onClick={() => setPalette("open")}>
-                      <Icon.search />
-                      Buscar <kbd>⌘P</kbd>
-                    </button>
-                  )}
-                </div>
+                {refs.length === 0 ? (
+                  <>
+                    <h1>Armá tu vista</h1>
+                    <p>
+                      Sumá carpetas o diagramas sueltos de cualquier repo. Los archivos <code>.excalidraw</code> se quedan donde están, versionados con su código; acá solo ves lo que elegiste.
+                    </p>
+                    <AddRef
+                      onAdded={async (ref) => {
+                        await reloadTree();
+                        if (ref.kind === "file" && ref.file) navigate(ref.file);
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <h1>{entries.some((e) => e.type === "file" && !e.hidden) ? "Elegí un diagrama" : "Empezá tu primer diagrama"}</h1>
+                    <p>Los diagramas se guardan como archivos <code>.excalidraw</code> en cada repo. Podés linkear uno con otro para ir del panorama general al detalle.</p>
+                    <div className="welcome-actions">
+                      <button
+                        className="btn primary"
+                        onClick={() => {
+                          setSidebarOpen(true);
+                          setCreateSignal((n) => n + 1);
+                        }}
+                      >
+                        <Icon.plus />
+                        Nuevo diagrama
+                      </button>
+                      {entries.some((e) => e.type === "file" && !e.hidden) && (
+                        <button className="btn" onClick={() => setPalette("open")}>
+                          <Icon.search />
+                          Buscar <kbd>⌘P</kbd>
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )
           )}
@@ -514,7 +597,17 @@ export function App() {
           onAdd={startComment}
         />
       )}
-      {palette && <Palette mode={palette} entries={entries ?? []} current={current} recent={recent} onPick={onPalettePick} onClose={() => setPalette(null)} />}
+      {palette && (
+        <Palette
+          mode={palette}
+          entries={(entries ?? []).filter((e) => !e.hidden || (palette === "link" && current && refIdOf(e.path) === refIdOf(current)))}
+          current={current}
+          defaultDir={defaultDir}
+          recent={recent}
+          onPick={onPalettePick}
+          onClose={() => setPalette(null)}
+        />
+      )}
       {exporting && current && excalidraw && <ExportDialog path={current} excalidraw={excalidraw} comments={comments} theme={theme} onClose={() => setExporting(false)} />}
       <Toasts />
       <Tooltips />

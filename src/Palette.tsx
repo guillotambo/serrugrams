@@ -7,13 +7,15 @@ interface Props {
   mode: "open" | "link";
   entries: TreeEntry[];
   current: RelPath | null;
+  /** Dónde se crea un diagrama nuevo si no hay uno abierto. */
+  defaultDir: string;
   recent: RelPath[];
   onPick: (path: RelPath, created: boolean) => void;
   onClose: () => void;
 }
 
 /** Buscador rápido: abre un diagrama o elige el destino de un link. Sin animación: se usa todo el tiempo. */
-export function Palette({ mode, entries, current, recent, onPick, onClose }: Props) {
+export function Palette({ mode, entries, current, defaultDir, recent, onPick, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -33,10 +35,11 @@ export function Palette({ mode, entries, current, recent, onPick, onClose }: Pro
       .slice(0, 50)
       .map((x) => ({ kind: "file" as const, path: x.path }));
     const name = sanitizeName(q);
-    const newPath = name ? joinPath(current ? dirName(current) : "", name.endsWith(DIAGRAM_EXT) ? name : name + DIAGRAM_EXT) : "";
+    const dir = current ? dirName(current) : defaultDir;
+    const newPath = name && dir ? joinPath(dir, name.endsWith(DIAGRAM_EXT) ? name : name + DIAGRAM_EXT) : "";
     const exists = entries.some((e) => e.path === newPath);
-    return name && !exists ? [...scored, { kind: "create" as const, path: newPath }] : scored;
-  }, [entries, query, current, recent]);
+    return newPath && !exists ? [...scored, { kind: "create" as const, path: newPath }] : scored;
+  }, [entries, query, current, defaultDir, recent]);
 
   useEffect(() => setIndex(0), [query]);
   useEffect(() => {

@@ -1,4 +1,4 @@
-import type { CommentsFile, ExcalidrawFile, FileResponse, RelPath, ServerEvent, TreeEntry } from "../shared/types.ts";
+import type { CommentsFile, ExcalidrawFile, FileResponse, RefInfo, RelPath, ServerEvent, TreeResponse } from "../shared/types.ts";
 
 export class ApiError extends Error {
   status: number;
@@ -27,7 +27,11 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 const qp = (path: RelPath) => "?path=" + encodeURIComponent(path);
 
 export const api = {
-  tree: () => call<{ rootName: string; rootPath: string; entries: TreeEntry[] }>("GET", "/api/tree"),
+  tree: () => call<TreeResponse>("GET", "/api/tree"),
+  addRef: (path: string) => call<{ ref: RefInfo }>("POST", "/api/refs", { path }),
+  renameRef: (id: string, next: string) => call<{ id: string }>("PATCH", "/api/refs", { id, next }),
+  removeRef: (id: string) => call<{ ok: true }>("DELETE", "/api/refs?id=" + encodeURIComponent(id), {}),
+  complete: (prefix: string) => call<{ items: string[] }>("GET", "/api/complete?prefix=" + encodeURIComponent(prefix)),
   readFile: (path: RelPath) => call<FileResponse>("GET", "/api/file" + qp(path)),
   saveFile: (path: RelPath, content: ExcalidrawFile, baseHash?: string) =>
     call<{ hash: string }>("PUT", "/api/file" + qp(path), { content, baseHash }),

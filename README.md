@@ -2,7 +2,7 @@
 
 Diagramas de sistemas sobre [Excalidraw](https://github.com/excalidraw/excalidraw) (MIT), pensados para ir del panorama general al detalle y para trabajar junto con agentes.
 
-- **Explorador de carpeta.** Cada diagrama es un archivo `.excalidraw` en disco. Se versiona con git y abre también en excalidraw.com.
+- **Tu vista, de varios repos.** Cada diagrama es un archivo `.excalidraw` en su repo, versionado con git, que abre también en excalidraw.com. Un solo servidor muestra las carpetas y diagramas que elegiste.
 - **Links entre diagramas.** Cualquier elemento puede llevar a otro diagrama. Hay historial para volver atrás y se recuerda dónde estabas en cada uno.
 - **Comentarios.** Se anclan a un elemento o a un punto del lienzo y se guardan aparte, en `<diagrama>.excalidraw.comments.json`. Al exportar elegís si van o no.
 - **MCP para agentes.** Claude Code, Codex, Cursor o cualquier cliente MCP puede listar, leer, crear y editar diagramas. Si la app está abierta, los cambios aparecen en vivo. Ver [docs/mcp.md](docs/mcp.md).
@@ -11,27 +11,40 @@ Diagramas de sistemas sobre [Excalidraw](https://github.com/excalidraw/excalidra
 
 Requiere Node 24 o superior.
 
-Una vez publicado en npm, sin clonar nada:
+Serrugrams se levanta **una sola vez** y muestra tu **vista**: las carpetas y diagramas sueltos que elegiste, de cualquier repo. Los archivos se quedan en cada repo, versionados con su código; la vista es personal y vive en `~/.serrugrams/workspace.json`. Se arma desde la interfaz, con el botón «Agregar a la vista» de la barra lateral. Detalle del diseño en [docs/referencias.md](docs/referencias.md).
 
-```bash
-npx serrugrams /ruta/a/una/carpeta   # abre http://localhost:4747
-npx serrugrams mcp --root /ruta/a/una/carpeta   # servidor MCP (stdio)
-```
-
-Desde el repo clonado (con pnpm):
+Desde el repo clonado (con pnpm), con un alias para tenerlo a mano:
 
 ```bash
 pnpm install
-pnpm build
-node server/index.ts /ruta/a/una/carpeta   # abre http://localhost:4747
+pnpm build   # también después de cada git pull: la interfaz sale de dist/
+alias serrugrams="node /ruta/al/clon/bin/serrugrams.js"   # en ~/.zshrc
 ```
 
-Sin carpeta, usa el directorio actual. `--port` cambia el puerto.
+Una vez publicado en npm, `npx serrugrams` hace lo mismo sin clonar nada.
 
-Para desarrollo (recarga en caliente, usa la carpeta `examples/`):
+### Comandos
+
+| Comando | Qué hace |
+|---|---|
+| `serrugrams` | Levanta el servidor de fondo (si no está corriendo) y abre http://localhost:4747. |
+| `serrugrams <ruta>…` | Lo mismo, y suma esas carpetas o diagramas a la vista. |
+| `serrugrams ls` | Estado del servidor y lo que hay en la vista (funciona también con el servidor apagado). |
+| `serrugrams remove <nombre\|ruta>` | Quita algo de la vista. No borra nada del disco. |
+| `serrugrams open` | Abre el navegador. |
+| `serrugrams stop` | Apaga el servidor. |
+| `serrugrams logs [-f]` | Lo que imprimió el servidor; `-f` lo sigue en vivo. |
+| `serrugrams mcp --root <carpeta>` | Servidor MCP por stdio, para agentes. |
+| `serrugrams help` | La ayuda. |
+
+Opciones: `--port N` cambia el puerto, `--fg` lo deja en la terminal (se apaga con `Ctrl+C`) y `--no-open` no abre el navegador. El estado y el log del servidor van a `~/.serrugrams/` (`SERRUGRAMS_HOME` cambia esa carpeta).
+
+Apagarlo no pierde nada: el disco es la fuente de verdad. El servidor web es independiente del MCP; Claude puede leer y editar los diagramas de un repo sin que esté prendido, y después vos decidís si los sumás a la vista.
+
+Para desarrollo (recarga en caliente):
 
 ```bash
-pnpm dev   # UI en http://localhost:5173
+pnpm dev   # UI en http://localhost:5173, API en el 4848 y una vista aparte con examples/
 ```
 
 ## Atajos
@@ -46,17 +59,18 @@ pnpm dev   # UI en http://localhost:5173
 ## Cómo se guardan las cosas
 
 - **Diagramas:** JSON estándar de Excalidraw. El disco es la fuente de verdad: la app observa la carpeta y recarga si otro proceso (un agente, git) cambia un archivo.
-- **Links:** en el campo nativo `link` del elemento, como ruta desde la raíz de la carpeta: `/pagos/detalle.excalidraw` o `/pagos/detalle.excalidraw#<idElemento>`. Al renombrar o mover un diagrama desde la app o el MCP, los links que apuntaban a él se actualizan.
+- **Vista:** `~/.serrugrams/workspace.json`, con la ruta absoluta de cada carpeta o diagrama. Si una ruta deja de existir, aparece tachada y se puede quitar.
+- **Links:** en el campo nativo `link` del elemento, como ruta desde la raíz de los diagramas del repo: `/pagos/detalle.excalidraw` o `/pagos/detalle.excalidraw#<idElemento>`. Se resuelven buscando desde la raíz de la referencia hacia la carpeta del diagrama, así funcionan igual si sumás `docs/diagramas`, la raíz del repo o un diagrama suelto. Al renombrar o mover un diagrama desde la app o el MCP, los links que apuntaban a él se actualizan.
 - **Comentarios:** archivo sidecar junto al diagrama. Si el elemento anclado se borra, el comentario queda en su última posición.
-- **Papelera:** eliminar mueve a `.serrugrams/trash/` dentro de la carpeta; no borra.
+- **Papelera:** eliminar mueve a `.serrugrams/trash/` dentro de la carpeta de la referencia; no borra. Quitar algo de la vista no toca el disco.
 
 ## Seguridad
 
-El servidor escucha solo en `127.0.0.1`, rechaza pedidos con `Host` u `Origin` que no sean locales y no lee ni escribe fuera de la carpeta abierta.
+El servidor escucha solo en `127.0.0.1`, rechaza pedidos con `Host` u `Origin` que no sean locales y no lee ni escribe fuera de las carpetas de la vista (para un diagrama suelto, la raíz de su repo). El autocompletado de «Agregar a la vista» lista nombres de carpetas y diagramas de tu disco, nunca su contenido.
 
 ## Estructura
 
-- `server/` — servidor HTTP (`index.ts`), acceso a disco (`workspace.ts`), MCP (`mcp.ts`, `builder.ts`, `layout.ts`).
+- `server/` — servidor HTTP (`index.ts`), la vista y sus referencias (`refs.ts`), acceso a disco (`workspace.ts`), MCP (`mcp.ts`, `builder.ts`, `layout.ts`).
 - `src/` — interfaz en React.
 - `shared/types.ts` — formatos compartidos.
 - `dist/` — salida de `pnpm build` (no se versiona): `dist/ui` es la interfaz y `dist/server` + `dist/shared` el servidor compilado a JavaScript. Es lo que viaja en el paquete npm junto con `bin/`.
@@ -64,6 +78,7 @@ El servidor escucha solo en `127.0.0.1`, rechaza pedidos con `Host` u `Origin` q
 
 ## Estado y pendientes conocidos
 
+- Vista con referencias (un servidor, carpetas y diagramas sueltos de varios repos): probado en el navegador agregando, quitando, renombrando, siguiendo links a diagramas fuera de la vista, creando un diagrama al lado de uno suelto y con una carpeta que desaparece y vuelve; tests en `server/refs.test.ts` y `server/cli.test.ts`. Los links entre repos distintos no están soportados.
 - Probado en el navegador: crear, dibujar, autoguardado, links y navegación, renombrar con reescritura de links, comentarios, exportar e importar con comentarios, y ediciones por MCP con el diagrama abierto.
 - El MCP se probó con el cliente oficial del SDK y desde Claude Code real (las 12 herramientas, con el `.mcp.json` del repo y la app abierta); todavía no desde Codex o Cursor.
 - Las fuentes de Excalidraw se copian solas a `public/fonts` al empezar `pnpm dev` y `pnpm build` (`scripts/copy-fonts.mjs`; a mano: `pnpm fonts`).

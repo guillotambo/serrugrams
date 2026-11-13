@@ -2,7 +2,7 @@
 
 Servidor MCP (stdio) para que un agente (Claude Code, Codex, Cursor…) lea y edite los diagramas de una carpeta: crea diagramas a partir de nodos y flechas, los acomoda solo (layout por capas), linkea diagramas entre sí y maneja los comentarios.
 
-Solo escribe archivos `.excalidraw` y sus sidecars `.comments.json`. No necesita la UI abierta; si está abierta, los cambios aparecen en vivo porque el servidor HTTP vigila la carpeta. Cada edición relee el archivo y escribe con hash base, así no pisa lo que estés editando en el navegador (si hay conflicto, relee y reintenta una vez).
+Solo escribe archivos `.excalidraw` y sus sidecars `.comments.json`. No necesita la UI abierta; si la carpeta está en tu vista y la UI está abierta, los cambios aparecen en vivo porque el servidor HTTP la vigila. Cada edición relee el archivo y escribe con hash base, así no pisa lo que estés editando en el navegador (si hay conflicto, relee y reintenta una vez).
 
 ```bash
 node server/mcp.ts --root /ruta/a/mis-diagramas

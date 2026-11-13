@@ -15,11 +15,60 @@ export interface TreeEntry {
   links?: RelPath[];
   /** Solo archivos: cantidad de comentarios sin resolver. */
   openComments?: number;
+  /** Existe y se puede abrir (p. ej. por un link), pero no está en la vista. */
+  hidden?: boolean;
+}
+
+/**
+ * Una referencia de la vista: una carpeta o un diagrama suelto de algún repo.
+ * Las rutas globales que usan la UI y la API son `<id>/<ruta dentro de root>`.
+ */
+export interface RefInfo {
+  id: string;
+  /** Ruta absoluta a la carpeta o al diagrama, tal como se agregó. */
+  path: string;
+  kind: "folder" | "file";
+  /** Carpeta raíz absoluta: la carpeta misma, o la raíz del repo de un diagrama suelto. */
+  root: string;
+  /** Diagrama suelto: su ruta global. */
+  file?: RelPath;
+  /** La ruta ya no existe. */
+  missing?: boolean;
 }
 
 export interface TreeResponse {
-  rootName: string;
+  refs: RefInfo[];
   entries: TreeEntry[];
+}
+
+/** Primer tramo de una ruta global: el id de la referencia. */
+export const refIdOf = (p: RelPath) => p.split("/")[0];
+
+/**
+ * Resuelve el destino de un link guardado en el diagrama `from` (ruta global). El link es relativo a la raíz
+ * de los diagramas del repo, que puede no ser la raíz de la referencia: se prueba desde la raíz de la
+ * referencia hacia la carpeta de `from` y gana el primero que existe. Si ninguno existe, se devuelve el de la raíz.
+ */
+export function resolveLinkTarget(from: RelPath, target: RelPath, exists: (p: RelPath) => boolean): RelPath {
+  const [id, ...rest] = from.split("/");
+  const dirs = rest.slice(0, -1);
+  for (let i = 0; i <= dirs.length; i++) {
+    const candidate = [id, ...dirs.slice(0, i), target].join("/");
+    if (exists(candidate)) return candidate;
+  }
+  return `${id}/${target}`;
+}
+
+/**
+ * Lo inverso: la ruta a guardar en un link desde `from` hacia `target` (globales), relativa a `base`
+ * (ruta global de una carpeta: la raíz de la referencia o la carpeta de un diagrama suelto).
+ * Devuelve null si son de referencias distintas.
+ */
+export function linkPathFor(target: RelPath, base: RelPath): RelPath | null {
+  const id = refIdOf(base);
+  if (refIdOf(target) !== id) return null;
+  if (target.startsWith(base + "/")) return target.slice(base.length + 1);
+  return target.slice(id.length + 1);
 }
 
 export interface ExcalidrawFile {

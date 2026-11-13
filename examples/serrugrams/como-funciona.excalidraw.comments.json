@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "comments": [
+    {
+      "id": "HlttHYxR8QPOfg",
+      "anchor": {
+        "elementId": "web",
+        "offset": {
+          "x": 220,
+          "y": 0
+        },
+        "x": 220,
+        "y": 240
+      },
+      "author": "claude",
+      "createdAt": "2026-11-13T15:41:05.920Z",
+      "resolved": false,
+      "text": "Uno solo para todo: `serrugrams` lo levanta de fondo en http://localhost:4747 (alias a bin/serrugrams.js) y `serrugrams stop` lo apaga. Muestra tu vista y vigila esas carpetas: lo que cambie otro proceso aparece en vivo. Apagarlo no pierde nada. Después de un git pull de serrugrams, corré pnpm build.",
+      "replies": []
+    },
+    {
+      "id": "0BIUZcWiMAPc5A",
+      "anchor": {
+        "elementId": "mcp",
+        "offset": {
+          "x": 220,
+          "y": 0
+        },
+        "x": 980,
+        "y": 240
+      },
+      "author": "claude",
+      "createdAt": "2026-11-13T15:41:05.992Z",
+      "resolved": false,
+      "text": "No lo levantás vos: Claude Code lo arranca solo en cada repo donde lo configuraste (claude mcp add -s project serrugrams -- node /ABS/serrugrams/server/mcp.ts --root docs/diagramas). Escribe en ese repo aunque no esté en tu vista; si lo querés ver, lo sumás a la vista.",
+      "replies": []
+    },
+    {
+      "id": "yolPK0rw957hsw",
+      "anchor": {
+        "elementId": "carpeta",
+        "offset": {
+          "x": 220,
+          "y": 0
+        },
+        "x": 600,
+        "y": 230
+      },
+      "author": "claude",
+      "createdAt": "2026-11-13T15:41:06.055Z",
+      "resolved": false,
+      "text": "Los diagramas viven en cada repo, en docs/diagramas/: panorama.excalidraw con links a los detalles por subcarpeta, versionados con el código. Los comentarios van en *.comments.json al lado de cada diagrama. Lo borrado va a .serrugrams/trash, que conviene sumar al .gitignore.",
+      "replies": []
+    },
+    {
+      "id": "gcjlbKSwP73e1w",
+      "anchor": {
+        "elementId": "git",
+        "offset": {
+          "x": 160,
+          "y": 0
+        },
+        "x": 570,
+        "y": 480
+      },
+      "author": "claude",
+      "createdAt": "2026-11-13T15:41:06.124Z",
+      "resolved": false,
+      "text": "Commiteá los .excalidraw y los .comments.json junto con el código que describen, así en el PR se revisan los dos juntos.",
+      "replies": []
+    },
+    {
+      "id": "_REW2My3JQJwYQ",
+      "anchor": {
+        "elementId": "vista",
+        "offset": {
+          "x": 220,
+          "y": 0
+        },
+        "x": 220,
+        "y": 470
+      },
+      "author": "claude",
+      "createdAt": "2026-11-13T16:42:56.868Z",
+      "resolved": false,
+      "text": "Lo que ves en la barra lateral: carpetas o diagramas sueltos de cualquier repo, con su ruta absoluta. Se arma desde la interfaz con «Agregar a la vista»; quitar algo no borra nada del disco. Si una ruta deja de existir, aparece tachada.",
+      "replies": []
+    }
+  ]
+}

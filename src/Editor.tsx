@@ -77,6 +77,9 @@ interface Props {
   path: RelPath;
   theme: "light" | "dark";
   focusElementId?: string;
+  /** Este diagrama tal como se escribe en un link (relativo a la raíz de los diagramas del repo). */
+  linkPath: RelPath;
+  /** Recibe el destino tal como está guardado en el link; quien lo recibe lo resuelve. */
   onNavigate: (path: RelPath, elementId?: string) => void;
   onReady: (api: ExcalidrawImperativeAPI | null) => void;
   onSelection: (ids: string[]) => void;
@@ -340,7 +343,7 @@ export function Editor(props: Props) {
         name={displayName(path)}
         langCode="es-ES"
         UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: false, toggleTheme: false, saveAsImage: false } }}
-        generateLinkForSelection={(id) => makeDiagramLink(path, id)}
+        generateLinkForSelection={(id) => makeDiagramLink(cb.current.linkPath, id)}
         onLinkOpen={(element, event) => {
           const parsed = parseDiagramLink(element.link);
           if (!parsed) return;

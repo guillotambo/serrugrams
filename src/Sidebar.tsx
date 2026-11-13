@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DIAGRAM_EXT, type RelPath, type TreeEntry } from "../shared/types.ts";
+import { DIAGRAM_EXT, refIdOf, type RefInfo, type RelPath, type TreeEntry } from "../shared/types.ts";
+import { AddRef } from "./AddRef.tsx";
 import { api, ApiError } from "./api.ts";
 import { toast } from "./bus.ts";
 import { Icon } from "./icons.tsx";
@@ -30,27 +31,38 @@ function buildTree(entries: TreeEntry[]): Node[] {
   return root;
 }
 
-type Editing = { mode: "rename"; path: RelPath; type: "file" | "dir" } | { mode: "new-file" | "new-dir"; dir: string };
+type Editing =
+  | { mode: "rename"; path: RelPath; type: "file" | "dir" }
+  | { mode: "rename-ref"; id: string }
+  | { mode: "new-file" | "new-dir"; dir: string };
 
 interface Props {
-  rootName: string;
+  refs: RefInfo[];
   entries: TreeEntry[];
   current: RelPath | null;
+  /** Carpeta donde se crea algo si no hay otra elegida: la primera carpeta de la vista. */
+  defaultDir: string;
   onOpen: (path: RelPath) => void;
   onCreated: (path: RelPath) => void;
   onRenamed: (from: RelPath, to: RelPath, isDir: boolean) => void;
   onRemoved: (path: RelPath, isDir: boolean) => void;
   onQuickOpen: () => void;
   onImport: (files: FileList, dir: string) => void;
+  onRefsChanged: () => Promise<void>;
   /** Pedido externo de crear un diagrama (desde el estado vacío). */
   createSignal: number;
 }
 
-export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenamed, onRemoved, onQuickOpen, onImport, createSignal }: Props) {
-  const tree = useMemo(() => buildTree(entries), [entries]);
+export function Sidebar({ refs, entries, current, defaultDir, onOpen, onCreated, onRenamed, onRemoved, onQuickOpen, onImport, onRefsChanged, createSignal }: Props) {
+  const visible = useMemo(() => entries.filter((e) => !e.hidden), [entries]);
+  const tree = useMemo(() => buildTree(visible), [visible]);
+  const visibleDirs = useMemo(() => new Set(visible.filter((e) => e.type === "dir").map((e) => e.path)), [visible]);
+  // Raíz de cada referencia: la carpeta (su id) o el diagrama suelto.
+  const refByPath = useMemo(() => new Map(refs.filter((r) => !r.missing).map((r) => [r.kind === "file" ? r.file! : r.id, r])), [refs]);
   const [collapsed, setCollapsed] = useState<string[]>(() => load("collapsed", []));
   const [editing, setEditing] = useState<Editing | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; node: Node | null } | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; node: Node | null; ref?: RefInfo } | null>(null);
   const [dropDir, setDropDir] = useState<string | null>(null);
 
   const toggle = (path: string) => {
@@ -67,8 +79,18 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
     store("collapsed", next);
   };
 
-  const currentDir = current ? dirName(current) : "";
+  const currentDir = current ? dirName(current) : defaultDir;
   const startNew = (mode: "new-file" | "new-dir", dir: string) => {
+    if (!dir) {
+      toast("Primero agregá una carpeta a la vista");
+      setAdding(true);
+      return;
+    }
+    // Al lado de un diagrama suelto no se ven las carpetas: ahí solo se crean diagramas.
+    if (mode === "new-dir" && !visibleDirs.has(dir)) {
+      toast("Las carpetas nuevas van dentro de una carpeta de la vista", "error");
+      return;
+    }
     expand(dir);
     setEditing({ mode, dir });
   };
@@ -83,6 +105,8 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
 
+  const fail = (err: unknown, fallback: string) => toast(err instanceof ApiError ? err.message : fallback, "error");
+
   const commit = async (raw: string) => {
     const e = editing;
     setEditing(null);
@@ -95,6 +119,11 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
         onCreated(path);
       } else if (e.mode === "new-dir") {
         await api.mkdir(joinPath(e.dir, name));
+      } else if (e.mode === "rename-ref") {
+        if (name === e.id) return;
+        const { id } = await api.renameRef(e.id, name);
+        onRenamed(e.id, id, true);
+        onRefsChanged();
       } else if (e.mode === "rename") {
         const to = joinPath(dirName(e.path), e.type === "file" && !name.endsWith(DIAGRAM_EXT) ? name + DIAGRAM_EXT : name);
         if (to === e.path) return;
@@ -102,7 +131,7 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
         onRenamed(e.path, to, e.type === "dir");
       }
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "No se pudo completar la operación", "error");
+      fail(err, "No se pudo completar la operación");
     }
   };
 
@@ -112,18 +141,34 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
       onRemoved(node.path, node.type === "dir");
       toast(`"${displayName(node.path)}" se movió a la papelera (.serrugrams/trash)`);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "No se pudo eliminar", "error");
+      fail(err, "No se pudo eliminar");
+    }
+  };
+
+  const unref = async (ref: RefInfo) => {
+    try {
+      await api.removeRef(ref.id);
+      onRemoved(ref.id, true);
+      onRefsChanged();
+      toast(`"${ref.id}" se quitó de la vista. No se borró nada.`);
+    } catch (err) {
+      fail(err, "No se pudo quitar");
     }
   };
 
   const move = async (from: RelPath, toDir: string) => {
+    if (!toDir) return;
     const to = joinPath(toDir, baseName(from));
     if (to === from || toDir === from || toDir.startsWith(from + "/")) return;
+    if (refIdOf(from) !== refIdOf(toDir)) {
+      toast("No se puede mover entre referencias distintas: son repos o carpetas separadas", "error");
+      return;
+    }
     try {
       await api.rename(from, to);
       onRenamed(from, to, !from.endsWith(DIAGRAM_EXT));
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "No se pudo mover", "error");
+      fail(err, "No se pudo mover");
     }
   };
 
@@ -138,60 +183,71 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
       e.preventDefault();
       e.stopPropagation();
       setDropDir(null);
-      if (e.dataTransfer.files.length) onImport(e.dataTransfer.files, dir);
-      else {
+      if (e.dataTransfer.files.length) {
+        const target = dir || defaultDir;
+        if (target) onImport(e.dataTransfer.files, target);
+        else toast("Primero agregá una carpeta a la vista", "error");
+      } else {
         const from = e.dataTransfer.getData("text/serrugrams-path");
         if (from) move(from, dir);
       }
     },
   });
 
+  const editingRow = (depth: number) =>
+    editing &&
+    (editing.mode === "new-file" || editing.mode === "new-dir") && (
+      <div className="row editing" style={{ paddingLeft: 8 + depth * 14 }}>
+        <span className="row-icon">{editing.mode === "new-dir" ? <Icon.folder /> : <Icon.file />}</span>
+        <NameInput initial="" placeholder={editing.mode === "new-dir" ? "Nombre de la carpeta" : "Nombre del diagrama"} onCommit={commit} />
+      </div>
+    );
+
   const renderNodes = (nodes: Node[], depth: number, dir: string) => (
     <>
-      {editing && editing.mode !== "rename" && editing.dir === dir && (
-        <div className="row editing" style={{ paddingLeft: 8 + depth * 14 }}>
-          <span className="row-icon">{editing.mode === "new-dir" ? <Icon.folder /> : <Icon.file />}</span>
-          <NameInput initial="" placeholder={editing.mode === "new-dir" ? "Nombre de la carpeta" : "Nombre del diagrama"} onCommit={commit} />
-        </div>
-      )}
+      {editing && editing.mode !== "rename" && editing.mode !== "rename-ref" && editing.dir === dir && editingRow(depth)}
       {nodes.map((node) => {
+        const ref = depth === 0 ? refByPath.get(node.path) : undefined;
         const isDir = node.type === "dir";
         const open = isDir && !collapsed.includes(node.path);
-        const renaming = editing?.mode === "rename" && editing.path === node.path;
+        const renaming = (editing?.mode === "rename" && editing.path === node.path) || (editing?.mode === "rename-ref" && ref?.kind === "folder" && editing.id === ref.id);
+        const label = ref?.kind === "folder" ? ref.id : isDir ? node.name : displayName(node.path);
+        const looseDir = ref?.kind === "file" ? dirName(node.path) : null;
         return (
           <div key={node.path}>
             <div
-              className="row"
+              className={ref ? "row ref-row" : "row"}
               role="treeitem"
               tabIndex={0}
               aria-selected={node.path === current}
               data-active={node.path === current || undefined}
               data-drop={(isDir && dropDir === node.path) || undefined}
               style={{ paddingLeft: 8 + depth * 14 }}
-              draggable={!renaming}
+              draggable={!renaming && !ref}
               onDragStart={(e) => e.dataTransfer.setData("text/serrugrams-path", node.path)}
               {...(isDir ? dropProps(node.path) : {})}
               onClick={() => (isDir ? toggle(node.path) : onOpen(node.path))}
               onKeyDown={(e) => {
                 if (renaming) return;
                 if (e.key === "Enter") isDir ? toggle(node.path) : onOpen(node.path);
-                if (e.key === "F2") setEditing({ mode: "rename", path: node.path, type: node.type });
+                if (e.key === "F2") setEditing(ref?.kind === "folder" ? { mode: "rename-ref", id: ref.id } : { mode: "rename", path: node.path, type: node.type });
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setMenu({ x: e.clientX, y: e.clientY, node });
+                setMenu({ x: e.clientX, y: e.clientY, node, ref });
               }}
             >
               <span className="row-icon" data-open={open || undefined}>
                 {isDir ? <Icon.chevron /> : <Icon.file />}
               </span>
               {renaming ? (
-                <NameInput initial={isDir ? node.name : displayName(node.path)} onCommit={commit} />
+                <NameInput initial={label} onCommit={commit} />
               ) : (
-                <span className="row-name" title={node.path}>
-                  {isDir ? node.name : displayName(node.path)}
+                <span className="row-name" title={ref ? ref.path : node.path}>
+                  {label}
                 </span>
               )}
+              {!renaming && ref?.kind === "file" && <span className="row-dir">{baseName(ref.root)}</span>}
               {!renaming && !!node.entry.openComments && (
                 <span className="badge" title={node.entry.openComments === 1 ? "1 comentario abierto" : `${node.entry.openComments} comentarios abiertos`}>
                   {node.entry.openComments}
@@ -204,7 +260,7 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
                   onClick={(e) => {
                     e.stopPropagation();
                     const r = e.currentTarget.getBoundingClientRect();
-                    setMenu({ x: r.left, y: r.bottom + 4, node });
+                    setMenu({ x: r.left, y: r.bottom + 4, node, ref });
                   }}
                 >
                   <Icon.more />
@@ -212,11 +268,16 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
               )}
             </div>
             {isDir && open && <div role="group">{renderNodes(node.children, depth + 1, node.path)}</div>}
+            {looseDir && editing?.mode === "new-file" && editing.dir === looseDir && editingRow(depth)}
           </div>
         );
       })}
     </>
   );
+
+  // Las referencias, en el orden en que se agregaron.
+  const rootNodes = tree.filter((n) => refByPath.has(n.path)).sort((a, b) => refs.indexOf(refByPath.get(a.path)!) - refs.indexOf(refByPath.get(b.path)!));
+  const missing = refs.filter((r) => r.missing);
 
   const incoming = current ? entries.filter((e) => e.type === "file" && e.links?.includes(current)) : [];
   const outgoing = current ? entries.find((e) => e.path === current)?.links ?? [] : [];
@@ -225,11 +286,12 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
   return (
     <nav className="sidebar" {...dropProps("")} data-drop={dropDir === "" || undefined}>
       <header className="sidebar-head">
-        <span className="brand" title={rootName}>
-          {rootName}
-        </span>
+        <span className="brand">Serrugrams</span>
         <button className="icon-btn" title="Buscar diagrama (⌘P)" onClick={onQuickOpen}>
           <Icon.search />
+        </button>
+        <button className="icon-btn" data-on={adding || undefined} title="Agregar a la vista una carpeta o un diagrama" onClick={() => setAdding((v) => !v)}>
+          <Icon.layersPlus />
         </button>
         <button className="icon-btn" title="Nuevo diagrama" onClick={() => startNew("new-file", currentDir)}>
           <Icon.plus />
@@ -248,12 +310,50 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
           }
         }}
       >
-        {renderNodes(tree, 0, "")}
-        {entries.length === 0 && !editing && (
+        {adding && (
+          <AddRef
+            compact
+            onAdded={async (ref) => {
+              setAdding(false);
+              toast(`"${ref.id}" está en la vista`);
+              await onRefsChanged();
+              if (ref.kind === "file" && ref.file) onOpen(ref.file);
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        )}
+        {renderNodes(rootNodes, 0, "")}
+        {missing.map((ref) => (
+          <div
+            key={ref.id}
+            className="row ref-row"
+            data-missing
+            style={{ paddingLeft: 8 }}
+            title={`No se encuentra ${ref.path}`}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({ x: e.clientX, y: e.clientY, node: null, ref });
+            }}
+          >
+            <span className="row-icon">{ref.kind === "folder" ? <Icon.folder /> : <Icon.file />}</span>
+            <span className="row-name">{ref.id}</span>
+            <button
+              className="icon-btn row-more"
+              title="Más acciones"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setMenu({ x: r.left, y: r.bottom + 4, node: null, ref });
+              }}
+            >
+              <Icon.more />
+            </button>
+          </div>
+        ))}
+        {refs.length === 0 && !adding && (
           <div className="empty-note">
-            <p>Esta carpeta todavía no tiene diagramas.</p>
-            <button className="btn" onClick={() => startNew("new-file", "")}>
-              Crear el primero
+            <p>Tu vista está vacía. Sumá carpetas o diagramas de cualquier repo; los archivos se quedan donde están.</p>
+            <button className="btn" onClick={() => setAdding(true)}>
+              Agregar a la vista
             </button>
           </div>
         )}
@@ -293,19 +393,27 @@ export function Sidebar({ rootName, entries, current, onOpen, onCreated, onRenam
       {menu && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
           {(() => {
-            const node = menu.node;
-            const dir = node ? (node.type === "dir" ? node.path : dirName(node.path)) : "";
+            const { node, ref } = menu;
+            if (ref?.missing) return <MenuItem onSelect={() => unref(ref)}>Quitar de la vista</MenuItem>;
+            const dir = node ? (node.type === "dir" ? node.path : dirName(node.path)) : defaultDir;
+            const canNewDir = visibleDirs.has(dir);
             return (
               <>
-                <MenuItem onSelect={() => startNew("new-file", dir)}>Nuevo diagrama</MenuItem>
-                <MenuItem onSelect={() => startNew("new-dir", dir)}>Nueva carpeta</MenuItem>
+                {!node && <MenuItem onSelect={() => setAdding(true)}>Agregar a la vista…</MenuItem>}
+                {dir && <MenuItem onSelect={() => startNew("new-file", dir)}>Nuevo diagrama</MenuItem>}
+                {dir && canNewDir && <MenuItem onSelect={() => startNew("new-dir", dir)}>Nueva carpeta</MenuItem>}
                 {node && (
                   <>
                     <hr />
-                    <MenuItem onSelect={() => setEditing({ mode: "rename", path: node.path, type: node.type })}>Renombrar</MenuItem>
-                    <MenuItem danger onSelect={() => remove(node)}>
-                      Mover a la papelera
+                    <MenuItem onSelect={() => setEditing(ref?.kind === "folder" ? { mode: "rename-ref", id: ref.id } : { mode: "rename", path: node.path, type: node.type })}>
+                      Renombrar
                     </MenuItem>
+                    {ref && <MenuItem onSelect={() => unref(ref)}>Quitar de la vista</MenuItem>}
+                    {ref?.kind !== "folder" && (
+                      <MenuItem danger onSelect={() => remove(node)}>
+                        Mover a la papelera
+                      </MenuItem>
+                    )}
                   </>
                 )}
               </>
