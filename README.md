@@ -6,6 +6,7 @@ Diagramas de sistemas sobre [Excalidraw](https://github.com/excalidraw/excalidra
 - **Links entre diagramas.** Cualquier elemento puede llevar a otro diagrama. Hay historial para volver atrás y se recuerda dónde estabas en cada uno.
 - **Comentarios.** Se anclan a un elemento o a un punto del lienzo y se guardan aparte, en `<diagrama>.excalidraw.comments.json`. Al exportar elegís si van o no.
 - **MCP para agentes.** Claude Code, Codex, Cursor o cualquier cliente MCP puede listar, leer, crear y editar diagramas. Si la app está abierta, los cambios aparecen en vivo. Ver [docs/mcp.md](docs/mcp.md).
+- **Skill para diagramar.** Le pedís a Claude Code «diagramá cómo funciona X» en cualquier repo: investiga el código y deja los diagramas en `docs/diagramas/`, del panorama al detalle. Ver [Diagramar con Claude](#diagramar-con-claude).
 
 ## Uso
 
@@ -34,7 +35,7 @@ Una vez publicado en npm, `npx serrugrams` hace lo mismo sin clonar nada.
 | `serrugrams open` | Abre el navegador. |
 | `serrugrams stop` | Apaga el servidor. |
 | `serrugrams logs [-f]` | Lo que imprimió el servidor; `-f` lo sigue en vivo. |
-| `serrugrams mcp --root <carpeta>` | Servidor MCP por stdio, para agentes. |
+| `serrugrams mcp --root <carpeta>` | Servidor MCP por stdio, para agentes. Una carpeta relativa se resuelve desde la raíz del repo. |
 | `serrugrams help` | La ayuda. |
 
 Opciones: `--port N` cambia el puerto, `--fg` lo deja en la terminal (se apaga con `Ctrl+C`) y `--no-open` no abre el navegador. El estado y el log del servidor van a `~/.serrugrams/` (`SERRUGRAMS_HOME` cambia esa carpeta).
@@ -46,6 +47,22 @@ Para desarrollo (recarga en caliente):
 ```bash
 pnpm dev   # UI en http://localhost:5173, API en el 4848 y una vista aparte con examples/
 ```
+
+## Diagramar con Claude
+
+Se configura una vez y sirve en todos los repos:
+
+```bash
+claude mcp add -s user serrugrams -- node /ruta/al/clon/server/mcp.ts --root docs/diagramas
+ln -s /ruta/al/clon/skills/serrugrams ~/.claude/skills/serrugrams
+```
+
+Después, en cualquier repo:
+
+- **«Diagramá cómo funciona X».** Claude lee lo que ya hay en `docs/diagramas/`, investiga el código y arma un `panorama.excalidraw` con una caja por sistema, cada una linkeada a su detalle (`<sistema>/detalle.excalidraw`). Lo que el código no deja claro queda como un comentario «Duda:» anclado a la caja, no inventado. Al terminar pregunta si lo suma a tu vista.
+- **«Revisá los comentarios del diagrama».** Lee los hilos abiertos, verifica en el código, corrige el diagrama, responde y resuelve lo que quedó hecho.
+
+`--root docs/diagramas` se resuelve desde la raíz del repo en el que estás y la carpeta se crea recién con el primer diagrama. La skill es un solo archivo, [skills/serrugrams/SKILL.md](skills/serrugrams/SKILL.md), que el MCP también sirve como el prompt `diagramar` para otros clientes. Detalle en [docs/mcp.md](docs/mcp.md).
 
 ## Atajos
 
@@ -74,6 +91,7 @@ El servidor escucha solo en `127.0.0.1`, rechaza pedidos con `Host` u `Origin` q
 - `src/` — interfaz en React.
 - `shared/types.ts` — formatos compartidos.
 - `dist/` — salida de `pnpm build` (no se versiona): `dist/ui` es la interfaz y `dist/server` + `dist/shared` el servidor compilado a JavaScript. Es lo que viaja en el paquete npm junto con `bin/`.
+- `skills/serrugrams/` — la skill para diagramar un repo con el MCP; viaja en el paquete npm y el MCP la sirve como prompt.
 - `.claude/skills/` — skills de diseño de Emil Kowalski (MIT), usadas como guía para la interfaz.
 
 ## Estado y pendientes conocidos

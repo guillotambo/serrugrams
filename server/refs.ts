@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { COMMENTS_SUFFIX, DIAGRAM_EXT, resolveLinkTarget, type RefInfo, type RelPath, type ServerEvent, type TreeEntry, type TreeResponse } from "../shared/types.ts";
-import { Workspace, WorkspaceError, hashOf } from "./workspace.ts";
+import { Workspace, WorkspaceError, gitRoot, hashOf } from "./workspace.ts";
 
 interface RefConfig {
   id: string;
@@ -21,13 +21,6 @@ interface Ref extends RefInfo {
 
 export function expandHome(p: string): string {
   return p === "~" || p.startsWith("~/") ? path.join(os.homedir(), p.slice(1)) : p;
-}
-
-function gitRoot(dir: string): string | null {
-  for (let d = dir; ; d = path.dirname(d)) {
-    if (existsSync(path.join(d, ".git"))) return d;
-    if (path.dirname(d) === d) return null;
-  }
 }
 
 const GENERIC = new Set(["docs", "doc", "diagramas", "diagrams", "diagrama"]);

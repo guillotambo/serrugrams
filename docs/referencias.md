@@ -7,7 +7,7 @@ Serrugrams se levanta **una sola vez** y muestra una lista de referencias que el
 - **Un solo servidor**, en el puerto 4747. No hay un servidor por carpeta.
 - **La barra lateral muestra tus referencias**, en el orden en que las agregaste, y no todo lo que hay en una carpeta.
 - **Se agregan y se quitan desde la interfaz.** Quitar una referencia no borra nada del disco.
-- **El MCP no cambia.** Cada repo configura el suyo con `--root` y Claude escribe ahí. Que aparezca en tu vista es decisión tuya.
+- **El MCP escribe en el repo.** Se configura una vez, a nivel usuario, con `--root docs/diagramas`, y en cada repo escribe en su `docs/diagramas` (ver [mcp.md](mcp.md)). Que aparezca en tu vista es decisión tuya: la skill pregunta al terminar.
 
 ## El archivo de referencias
 
@@ -48,7 +48,8 @@ Al crear un link desde la interfaz se imita a los links que el diagrama ya tiene
 
 ## Interfaz
 
-- Botón «Agregar a la vista» en la barra lateral: pegás la ruta de una carpeta o de un `.excalidraw` (acepta `~`, con autocompletado).
+- Botón «Agregar a la vista» en la barra lateral: pegás la ruta de una carpeta o de un `.excalidraw` (acepta `~`, con autocompletado y Tab).
+- En macOS, el botón de carpeta al lado del campo abre el selector de Finder (carpetas y `.excalidraw` en el mismo diálogo) y agrega lo que elegís. Arranca en lo que haya escrito en el campo. El diálogo lo abre el servidor (`server/picker.ts`, `POST /api/pick`), porque el navegador no le da a la página la ruta de un archivo, ni con un selector de archivos ni arrastrando desde Finder. En otros sistemas el botón no aparece.
 - Menú de una referencia: nuevo diagrama, nueva carpeta, renombrar (cambia el `id`) y quitar de la vista.
 - Crear un diagrama al lado de un diagrama suelto lo agrega a la vista como otra referencia, para que no quede escondido.
 - Renombrar o mover entre referencias distintas no se puede: son repos distintos.
@@ -66,12 +67,12 @@ Un servidor, de fondo:
 | `serrugrams stop` | Apaga el servidor. |
 | `serrugrams logs [-f]` | Lo que imprimió el servidor. |
 | `serrugrams --fg` | En primer plano, en la terminal. |
-| `serrugrams mcp --root <carpeta>` | Sin cambios. |
+| `serrugrams mcp --root <carpeta>` | El MCP. Una carpeta relativa se resuelve desde la raíz del repo. |
 
 `pnpm dev` usa su propio archivo de referencias (`.serrugrams/workspace.dev.json`, con `examples/`) y su API en el puerto 4848, para no chocar con el servidor de todos los días.
 
 ## Para más adelante
 
 - Links entre repos.
-- Una herramienta del MCP para sumar a la vista lo que Claude acaba de diagramar.
+- Una herramienta del MCP para sumar a la vista lo que Claude acaba de diagramar. Hoy el MCP devuelve el comando (`addToView`) y la skill lo corre si decís que sí.
 - Seguridad multiusuario y nube: ver [cloud.md](cloud.md).

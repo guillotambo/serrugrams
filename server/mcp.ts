@@ -4,13 +4,16 @@
 // recibe en vivo por el watcher del servidor HTTP.
 //
 // Uso: node server/mcp.ts [--root <dir>]   (o env SERRUGRAMS_ROOT; por defecto cwd)
+// Una raíz relativa se resuelve desde la raíz del repo (el .git más cercano hacia arriba), así
+// una sola configuración global con `--root docs/diagramas` sirve para todos los repos.
 // Nunca escribir en stdout fuera del protocolo: los logs van a stderr.
 import path from "node:path";
-import { promises as fs } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { Workspace, WorkspaceError, newId } from "./workspace.ts";
+import { Workspace, WorkspaceError, gitRoot, newId } from "./workspace.ts";
 import { DIAGRAM_EXT, emptyDiagram, makeDiagramLink, parseDiagramLink, type Comment, type ExcalidrawFile, type RelPath } from "../shared/types.ts";
 import { appendToScene, buildScene, deleteElements, summarizeScene, updateElement, BuilderError, isLive, type El } from "./builder.ts";
 
@@ -21,11 +24,35 @@ function rootFromArgs(): string {
   const args = process.argv.slice(2);
   const i = args.indexOf("--root");
   const fromFlag = i >= 0 ? args[i + 1] : args.find((a) => a.startsWith("--root="))?.slice(7);
-  return path.resolve(fromFlag ?? process.env.SERRUGRAMS_ROOT ?? process.cwd());
+  const given = fromFlag ?? process.env.SERRUGRAMS_ROOT;
+  const cwd = process.cwd();
+  if (!given) return cwd;
+  return path.isAbsolute(given) ? path.resolve(given) : path.resolve(gitRoot(cwd) ?? cwd, given);
 }
-const root = rootFromArgs();
-await fs.mkdir(root, { recursive: true });
-const ws = new Workspace(root);
+// La carpeta raíz no se crea al arrancar: aparece recién al escribir el primer diagrama.
+// Con el MCP configurado globalmente, abrir una sesión en un repo no le deja un docs/diagramas vacío.
+const ws = new Workspace(rootFromArgs());
+
+// --- Archivos que viajan con el servidor (el fuente está en server/, el compilado en dist/server/) ---
+const here = path.dirname(fileURLToPath(import.meta.url));
+function shipped(rel: string): string | null {
+  for (const up of ["..", "../.."]) {
+    const abs = path.resolve(here, up, rel);
+    if (existsSync(abs)) return abs;
+  }
+  return null;
+}
+const cliPath = shipped("bin/serrugrams.js");
+const quote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+/** Comando que suma la carpeta de diagramas a la vista del usuario y abre la interfaz. */
+const addToViewCommand = cliPath ? `node ${quote(cliPath)} ${quote(ws.root)}` : `serrugrams ${quote(ws.root)}`;
+
+/** La skill (skills/serrugrams/SKILL.md) sin su encabezado YAML, para exponerla como prompt. */
+function workflowText(): string | null {
+  const file = shipped("skills/serrugrams/SKILL.md");
+  if (!file) return null;
+  return readFileSync(file, "utf8").replace(/^---\n[\s\S]*?\n---\n+/, "");
+}
 
 // --- Helpers ---
 class ToolError extends Error {}
@@ -109,7 +136,7 @@ const edgeSchema = z.object({
   bidirectional: z.boolean().optional(),
   strokeColor: z.string().optional(),
 });
-const pathArg = z.string().describe(`Diagram path relative to the workspace root, ending in ${DIAGRAM_EXT}, e.g. "overview.excalidraw" or "payments/detail.excalidraw".`);
+const pathArg = z.string().describe(`Diagram path relative to the workspace root, ending in ${DIAGRAM_EXT}, e.g. "panorama.excalidraw" or "payments/detalle.excalidraw".`);
 const directionArg = z.enum(["LR", "TB"]).optional().describe("Auto-layout direction for nodes without x/y: LR = left to right (default), TB = top to bottom.");
 const authorArg = z.string().optional().describe("Defaults to \"agent\".");
 
@@ -117,16 +144,18 @@ const authorArg = z.string().optional().describe("Defaults to \"agent\".");
 const CONVENTIONS = `Serrugrams: system-design diagrams as Excalidraw files (*.excalidraw) in a folder (workspace).
 
 Conventions:
-- Paths are relative to the workspace root, e.g. "overview.excalidraw", "payments/detail.excalidraw".
-- Keep ONE high-level diagram (e.g. "overview.excalidraw") with one box per system/service, and link each box to its detail diagram with link_element (or the node "link" field). Detail diagrams live in folders, e.g. "payments/detail.excalidraw".
+- Paths are relative to the workspace root, e.g. "panorama.excalidraw", "payments/detalle.excalidraw".
+- Keep ONE high-level diagram, "panorama.excalidraw", with one box per system/service, and link each box to its detail diagram with link_element (or the node "link" field). Detail diagrams live in folders, e.g. "payments/detalle.excalidraw".
 - Links are stored in the element's native "link" field as "/<path>.excalidraw" or "/<path>.excalidraw#<elementId>" to focus an element. Tools accept the path with or without the leading "/".
-- Put machine-readable metadata in node customData, e.g. {"service":"orders","repo":"org/orders","team":"checkout","owner":"@ana"}.
+- Put machine-readable metadata in node customData, e.g. {"repo":"org/orders","service":"orders","file":"src/server.ts"} (optionally "team", "owner").
 - Keep labels short (1-4 words). Put explanations in comments (add_comment) or free text nodes, not in box labels.
 - Edges: solid = synchronous request, dashed = async/event/queue, dotted = optional. Label edges with the protocol or verb ("HTTPS", "gRPC", "publishes OrderPaid").
 - Shapes: rectangle = service/component, ellipse = datastore/external actor, diamond = decision.
 - Give nodes readable ids ("api", "orders-db") so you can reference them later; omit x/y to auto-layout.
 - Always read_diagram before editing an existing diagram; the user may have changed it in the UI.
-- Comments are review threads anchored to an element (or a point). Use list_comments to find open feedback, reply_comment to answer, resolve_comment when addressed.`;
+- Comments are review threads anchored to an element (or a point). Use list_comments to find open feedback, reply_comment to answer, resolve_comment when addressed.
+- The root folder is created when the first diagram is written. list_diagrams reports the root and "addToView": the shell command that adds it to the user's Serrugrams web view; run it only if the user agrees.
+- For the full workflow (investigate a codebase, then diagram it from overview to detail, or address review comments) use the "diagramar" prompt.`;
 
 const server = new McpServer({ name: "serrugrams", version: "0.1.0" }, { instructions: CONVENTIONS });
 
@@ -135,6 +164,19 @@ server.registerPrompt(
   { title: "Serrugrams conventions", description: "How to structure system-design diagrams in Serrugrams (overview + linked detail diagrams, customData, labels)." },
   () => ({ messages: [{ role: "user", content: { type: "text", text: CONVENTIONS } }] }),
 );
+
+const workflow = workflowText();
+if (workflow) {
+  server.registerPrompt(
+    "diagramar",
+    {
+      title: "Diagramar un sistema",
+      description: "Flujo completo: investigar el código y diagramarlo del panorama al detalle, o revisar los comentarios de un diagrama. Es la misma skill de Claude Code (skills/serrugrams/SKILL.md).",
+      argsSchema: { pedido: z.string().optional().describe("Qué diagramar o revisar, p. ej. \"cómo funciona el checkout\" o \"revisá los comentarios del panorama\".") },
+    },
+    ({ pedido }) => ({ messages: [{ role: "user", content: { type: "text", text: pedido ? `${workflow}\n\n## Pedido\n\n${pedido}` : workflow } }] }),
+  );
+}
 
 server.registerTool(
   "list_diagrams",
@@ -146,8 +188,8 @@ server.registerTool(
   },
   handle(async () => {
     const entries = (await ws.tree()).filter((e) => e.type === "file");
-    if (!entries.length) return `No diagrams yet in ${ws.root}. Create one with create_diagram (e.g. "overview.excalidraw").`;
-    return json({ root: ws.root, diagrams: entries.map((e) => ({ path: e.path, linksTo: e.links ?? [], openComments: e.openComments ?? 0 })) });
+    if (!entries.length) return `No diagrams yet in ${ws.root} (the folder is created with the first diagram). Create one with create_diagram (e.g. "panorama.excalidraw").`;
+    return json({ root: ws.root, addToView: addToViewCommand, diagrams: entries.map((e) => ({ path: e.path, linksTo: e.links ?? [], openComments: e.openComments ?? 0 })) });
   }),
 );
 
@@ -192,7 +234,7 @@ server.registerTool(
     const content = emptyDiagram();
     content.elements = built.elements;
     await ws.writeDiagram(rel, content, exists ? {} : { mustNotExist: true });
-    return json({ created: rel, nodes: built.nodeIds, edges: built.edgeIds });
+    return json({ created: rel, root: ws.root, addToView: addToViewCommand, nodes: built.nodeIds, edges: built.edgeIds });
   }),
 );
 

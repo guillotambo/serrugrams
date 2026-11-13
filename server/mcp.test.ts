@@ -51,6 +51,51 @@ test("expone tools, prompt e instrucciones", async () => {
   assert.match(client.getInstructions() ?? "", /customData/);
   const { prompts } = await client.listPrompts();
   assert.ok(prompts.some((p) => p.name === "system_design_conventions"));
+  // La skill viaja también como prompt, sin su encabezado YAML y con el pedido al final.
+  assert.ok(prompts.some((p) => p.name === "diagramar"));
+  const prompt: any = await client.getPrompt({ name: "diagramar", arguments: { pedido: "cómo funciona el checkout" } });
+  const text: string = prompt.messages[0].content.text;
+  assert.ok(!text.startsWith("---"), "sin frontmatter");
+  assert.match(text, /panorama\.excalidraw/);
+  assert.match(text, /## Pedido\n\ncómo funciona el checkout$/);
+});
+
+test("una raíz relativa se resuelve desde la raíz del repo y no se crea hasta escribir", async () => {
+  // Como con el MCP global (`--root docs/diagramas`) lanzado desde una subcarpeta de un repo cualquiera.
+  const repo = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "serrugrams-repo-")));
+  const sub = path.join(repo, "src", "api");
+  await fs.mkdir(path.join(repo, ".git"));
+  await fs.mkdir(sub, { recursive: true });
+  const expected = path.join(repo, "docs", "diagramas");
+  const exists = (p: string) => fs.access(p).then(() => true, () => false);
+  const c = new Client({ name: "serrugrams-test-root", version: "0.0.0" });
+  try {
+    await c.connect(new StdioClientTransport({ command: process.execPath, args: [serverPath, "--root", "docs/diagramas"], cwd: sub, stderr: "pipe" }));
+    const run = async (name: string, args: Record<string, unknown> = {}) => {
+      const res: any = await c.callTool({ name, arguments: args });
+      return { isError: !!res.isError, text: res.content.map((x: any) => x.text).join("\n") };
+    };
+
+    let r = await run("list_diagrams");
+    assert.ok(!r.isError, r.text);
+    assert.ok(r.text.includes(expected), `la raíz es ${expected}: ${r.text}`);
+    assert.ok((await run("read_diagram", { path: "panorama.excalidraw" })).isError);
+    assert.ok((await run("list_comments", { path: "panorama.excalidraw" })).isError);
+    assert.ok(!(await exists(path.join(repo, "docs"))), "arrancar, listar y leer no crean la carpeta");
+    assert.ok(!(await exists(path.join(sub, "docs"))), "ni la crean en el directorio de arranque");
+
+    r = await run("create_diagram", { path: "panorama.excalidraw", nodes: [{ id: "api", label: "API" }] });
+    assert.ok(!r.isError, r.text);
+    assert.ok(await exists(path.join(expected, "panorama.excalidraw")), "el primer diagrama crea la carpeta");
+    const created = JSON.parse(r.text);
+    assert.equal(created.root, expected);
+    assert.ok(created.addToView.endsWith(expected), created.addToView);
+    assert.match(created.addToView, /bin\/serrugrams\.js/);
+    assert.equal(JSON.parse((await run("list_diagrams")).text).addToView, created.addToView);
+  } finally {
+    await c.close();
+    await fs.rm(repo, { recursive: true, force: true });
+  }
 });
 
 test("flujo completo: crear, leer, agregar, actualizar, linkear, comentar, renombrar, borrar", async () => {

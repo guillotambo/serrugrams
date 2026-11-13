@@ -1,5 +1,5 @@
 // Acceso a disco confinado a la raíz del workspace. Lo usan el servidor HTTP y el MCP.
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -19,6 +19,14 @@ export class WorkspaceError extends Error {
 
 export function hashOf(text: string): string {
   return createHash("sha1").update(text).digest("hex");
+}
+
+/** La carpeta más cercana hacia arriba que tiene `.git` (carpeta o archivo, como en un worktree). */
+export function gitRoot(dir: string): string | null {
+  for (let d = dir; ; d = path.dirname(d)) {
+    if (existsSync(path.join(d, ".git"))) return d;
+    if (path.dirname(d) === d) return null;
+  }
 }
 
 export class Workspace {
