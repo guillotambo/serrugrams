@@ -1,6 +1,17 @@
 # Cloud y colaboración en vivo — propuesta
 
-Estado: propuesta para discutir. No hay código.
+Estado: en pausa (13/11/2026). No hay código y no se implementa por ahora: Serrugrams se usa solo en local.
+
+Respuestas a las decisiones de abajo:
+
+1. Acceso: link con token por espacio.
+2. Hosting: se decide más adelante.
+3. Git en el servidor: después, en la etapa 3.
+4. Red local: sin paso intermedio; se queda en `127.0.0.1` hasta desplegar con acceso.
+5. Privacidad: se quiere cifrado de punta a punta. Esto choca con la propuesta tal como está y hay que rediseñarla antes de retomarla:
+   - el servidor guardaría solo contenido cifrado, no `.excalidraw` legibles, así que no puede combinar cambios ni serializar comentarios;
+   - un MCP remoto no podría leer los diagramas, así que los agentes tendrían que correr del lado del cliente, con la clave;
+   - un historial git de contenido cifrado no permite clonar el espacio y abrirlo en modo local.
 
 ## Qué se busca
 

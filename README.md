@@ -70,7 +70,7 @@ El servidor escucha solo en `127.0.0.1`, rechaza pedidos con `Host` u `Origin` q
 - El encuadre inicial calcula el zoom exacto (85 % del lienzo, sin pasar del 100 % ni dejar contenido debajo de las barras de arriba y abajo) en vez de usar el de Excalidraw, que redondea hacia abajo de a 10 %.
 - Al llegar por un link con `#elementId`, el destino se marca con un contorno que se desvanece; no se selecciona, así no se abre el panel de propiedades.
 - Un link a un elemento del mismo diagrama no suma una entrada al historial: "atrás" vuelve al diagrama anterior, no a la vista previa.
-- `prefers-reduced-motion` está revisado por código (CSS y el desplazamiento al llegar por link), no con el ajuste del sistema activado.
+- `prefers-reduced-motion` probado con "Reducir movimiento" activado en macOS: al llegar por link el lienzo salta sin animar y el contorno aparece y se va de golpe, sin desvanecerse. Sin el ajuste, el desplazamiento dura unos 300 ms y el contorno lo sigue. Los popovers, diálogos, avisos y tooltips solo están revisados por código.
 - La URL guarda el diagrama pero no el elemento: `#elementId` solo se enfoca al llegar por un link, no al pegar la URL.
 - Los comentarios no tienen control de concurrencia: si dos procesos los editan a la vez, gana el último.
 - Paquete npm: `pnpm build` compila el servidor a `dist/server` y `bin/serrugrams.js` lo usa cuando no está el fuente (en el repo clonado sigue corriendo el TypeScript). Probado instalando el tarball de `npm pack` en una carpeta aparte (UI con fuentes y MCP con las 12 herramientas). Falta publicarlo (`npm publish`), confirmar que el nombre `serrugrams` esté libre y definir la licencia. El paquete pesa unos 15 MB por el bundle y las fuentes de Excalidraw.
