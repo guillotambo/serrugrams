@@ -65,6 +65,17 @@ kbd {
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; container-type: inline-size; }
 .canvas { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .editor, .editor-loading { position: absolute; inset: 0; }
+/* Marca el destino de un link: aparece, se queda un momento y se desvanece. */
+.focus-ring {
+  position: absolute; top: 0; left: 0; z-index: 2; pointer-events: none;
+  border-radius: 8px; box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px var(--accent-soft);
+  opacity: 0; animation: focus-ring 1600ms var(--ease-out) both;
+}
+@keyframes focus-ring {
+  0% { opacity: 0; }
+  10%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
 
 /* ---------- Botones ---------- */
 .icon-btn {
@@ -324,4 +335,9 @@ kbd {
   .popover, .dialog, .panel, .toast { transition-property: opacity; @starting-style { transform: none; } }
   .btn, .icon-btn, .pin, .segmented button { transition: none; }
   .tooltip { transition-property: opacity; @starting-style { transform: none; } }
+  .focus-ring { animation-name: focus-ring-still; animation-timing-function: step-end; }
+}
+@keyframes focus-ring-still {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
 }

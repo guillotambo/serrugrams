@@ -20,7 +20,8 @@ const positional = args.filter((a, i) => !a.startsWith("--") && !["--port", "--r
 const root = path.resolve(flag("--root") ?? positional[0] ?? process.env.SERRUGRAMS_ROOT ?? (dev ? "examples" : process.cwd()));
 const port = Number(flag("--port") ?? process.env.SERRUGRAMS_PORT ?? 4747);
 const here = path.dirname(fileURLToPath(import.meta.url));
-const distDir = path.join(here, "..", "dist");
+// La UI construida: junto al servidor compilado (dist/server -> dist/ui) o, corriendo el fuente, en dist/ui del repo.
+const distDir = [path.join(here, "..", "ui"), path.join(here, "..", "dist", "ui")].find((d) => existsSync(path.join(d, "index.html"))) ?? path.join(here, "..", "dist", "ui");
 
 await fs.mkdir(root, { recursive: true });
 const ws = new Workspace(root);

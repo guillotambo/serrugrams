@@ -3,6 +3,7 @@ import {
   CaptureUpdateAction,
   Excalidraw,
   MainMenu,
+  getCommonBounds,
   hashElementsVersion,
   restoreElements,
   serializeAsJSON,
@@ -12,6 +13,7 @@ import { makeDiagramLink, parseDiagramLink, type ExcalidrawFile, type RelPath } 
 import { api, ApiError } from "./api.ts";
 import { bus, toast } from "./bus.ts";
 import { displayName } from "./util.ts";
+import { useViewStore } from "./viewStore.ts";
 
 export type SaveStatus = "saved" | "saving" | "dirty" | "error";
 export interface View {
@@ -22,6 +24,54 @@ export interface View {
 
 /** Recuerda dónde estabas en cada diagrama para volver al mismo lugar. */
 const viewMemory = new Map<RelPath, View>();
+
+const FIT_FACTOR = 0.85;
+const MIN_ZOOM = 0.1; // el mínimo de Excalidraw
+/** Franja que ocupan la barra de herramientas (arriba) y los controles de zoom (abajo); igual en ambos lados para no descentrar. */
+const BARS = 56;
+
+/**
+ * Encuadra todo el contenido ocupando FIT_FACTOR del lienzo, sin agrandar más allá del 100 %.
+ * No se usa scrollToContent porque redondea el zoom hacia abajo de a 10 % y deja el diagrama más chico.
+ */
+function fitContent(ex: ExcalidrawImperativeAPI, box: HTMLElement | null): View | undefined {
+  const elements = ex.getSceneElements();
+  // Se mide el contenedor: el tamaño del appState puede venir atrasado si el editor recién se hizo visible.
+  const width = box?.clientWidth || ex.getAppState().width;
+  const height = box?.clientHeight || ex.getAppState().height;
+  if (!elements.length || width <= 0 || height <= 0) return;
+  const [x1, y1, x2, y2] = getCommonBounds(elements);
+  const w = Math.max(x2 - x1, 1);
+  const h = Math.max(y2 - y1, 1);
+  // 85 % del lienzo, con tope para que un diagrama alto no quede debajo de las barras.
+  const fit = Math.min(Math.min(width / w, height / h) * FIT_FACTOR, Math.max(height - BARS * 2, height / 2) / h);
+  const zoom = Math.min(1, Math.max(MIN_ZOOM, fit));
+  const view = { zoom, scrollX: width / 2 / zoom - (x1 + x2) / 2, scrollY: height / 2 / zoom - (y1 + y2) / 2 };
+  ex.updateScene({ appState: { ...view, zoom: { value: zoom } } as any, captureUpdate: CaptureUpdateAction.NEVER });
+  return view;
+}
+
+const RING_PAD = 6;
+
+/** Contorno que marca el elemento de destino de un link y se va solo. No selecciona nada. */
+function FocusRing({ ex, id, onDone }: { ex: ExcalidrawImperativeAPI; id: string; onDone: () => void }) {
+  const { view } = useViewStore(); // sigue al lienzo mientras se desplaza
+  const el = ex.getSceneElements().find((e) => e.id === id);
+  if (!el) return null;
+  const [x1, y1, x2, y2] = getCommonBounds([el]);
+  return (
+    <div
+      className="focus-ring"
+      aria-hidden
+      onAnimationEnd={onDone}
+      style={{
+        transform: `translate(${(x1 + view.scrollX) * view.zoom - RING_PAD}px, ${(y1 + view.scrollY) * view.zoom - RING_PAD}px)`,
+        width: (x2 - x1) * view.zoom + RING_PAD * 2,
+        height: (y2 - y1) * view.zoom + RING_PAD * 2,
+      }}
+    />
+  );
+}
 
 interface Props {
   path: RelPath;
@@ -55,6 +105,9 @@ export function Editor(props: Props) {
   const alive = useRef(true);
   const latest = useRef<{ elements: readonly any[]; appState: any; files: any } | null>(null);
   const viewRef = useRef<View>({ scrollX: NaN, scrollY: NaN, zoom: NaN });
+  // Hasta que el encuadre inicial no corrió, la vista es la de arranque de Excalidraw (a veces medida
+  // contra un editor sin tamaño): no se recuerda, para que la próxima visita encuadre bien.
+  const settled = useRef(false);
 
   // Carga inicial desde disco.
   useEffect(() => {
@@ -174,8 +227,9 @@ export function Editor(props: Props) {
     return () => {
       window.removeEventListener("beforeunload", flush);
       flush();
-      const st = apiRef.current?.getAppState();
-      if (st) viewMemory.set(path, { scrollX: st.scrollX, scrollY: st.scrollY, zoom: st.zoom.value });
+      // La última vista vista en onChange/onScrollChange: al desmontar, el appState puede venir atrasado.
+      const v = viewRef.current;
+      if (settled.current && Number.isFinite(v.zoom)) viewMemory.set(path, v);
       cb.current.onReady(null);
     };
   }, [save, path]);
@@ -187,7 +241,7 @@ export function Editor(props: Props) {
       ex.onScrollChange((scrollX, scrollY, zoom) => {
         const v = { scrollX, scrollY, zoom: zoom.value };
         viewRef.current = v;
-        viewMemory.set(path, v);
+        if (settled.current) viewMemory.set(path, v);
         cb.current.onView(v);
       });
       const st = ex.getAppState();
@@ -204,7 +258,9 @@ export function Editor(props: Props) {
   // al zoom mínimo: se espera a que el editor mida algo.
   const [sized, setSized] = useState(false);
   const observer = useRef<ResizeObserver | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useCallback((node: HTMLDivElement | null) => {
+    boxRef.current = node;
     observer.current?.disconnect();
     observer.current = null;
     if (!node) return;
@@ -221,6 +277,8 @@ export function Editor(props: Props) {
     observer.current.observe(node);
   }, []);
   const ready = apiReady && sized;
+  // Elemento resaltado al llegar por link. No se selecciona: la selección abre el panel de propiedades.
+  const [ring, setRing] = useState<string | null>(null);
   useEffect(() => {
     const ex = apiRef.current;
     if (!ready || !ex || !focusId) return;
@@ -228,23 +286,32 @@ export function Editor(props: Props) {
       const el = ex.getSceneElements().find((e) => e.id === focusId);
       if (!el) return;
       const animate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      ex.updateScene({ appState: { selectedElementIds: { [focusId]: true } } as any, captureUpdate: CaptureUpdateAction.NEVER });
       ex.scrollToContent(el, { fitToViewport: true, viewportZoomFactor: 0.45, maxZoom: 1, animate, duration: 300 });
+      setRing(focusKey!);
     }, 80);
     return () => clearTimeout(id);
   }, [ready, focusKey]);
 
   // Primera vez que se abre un diagrama: encuadrar todo el contenido sin agrandarlo de más.
   const fitted = useRef(false);
-  // Se mira al montar: después, el propio Excalidraw ya anotó su vista inicial en viewMemory.
+  // Se mira al montar: después del primer encuadre la vista de este diagrama ya queda anotada.
   const hadMemory = useRef(viewMemory.has(path));
   useEffect(() => {
     const ex = apiRef.current;
     if (!ready || !ex || fitted.current) return;
     fitted.current = true;
-    if (focusKey || hadMemory.current) return;
+    if (focusKey || hadMemory.current) {
+      settled.current = true;
+      return;
+    }
     const id = setTimeout(() => {
-      if (ex.getSceneElements().length) ex.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.85, maxZoom: 1, animate: false });
+      // Se anota acá mismo: updateScene es asíncrono y, si se sale enseguida, el appState todavía trae la vista vieja.
+      const v = fitContent(ex, boxRef.current);
+      if (v) {
+        viewRef.current = v;
+        viewMemory.set(path, v);
+      }
+      settled.current = true;
     }, 50);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -315,6 +382,7 @@ export function Editor(props: Props) {
         </MainMenu>
         {props.children}
       </Excalidraw>
+      {ring && apiRef.current && <FocusRing key={ring} ex={apiRef.current} id={ring.split("#")[0]} onDone={() => setRing(null)} />}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 // Copia las fuentes de Excalidraw a public/fonts (gitignoreado) para servirlas en local.
-// Corre solo en `postinstall`; también se puede lanzar a mano con `pnpm fonts`.
+// Corre al empezar `pnpm dev` y `pnpm build`; también se puede lanzar a mano con `pnpm fonts`.
 import { cpSync, existsSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";

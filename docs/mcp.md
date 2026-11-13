@@ -10,6 +10,8 @@ node server/mcp.ts --root /ruta/a/mis-diagramas
 
 La raíz sale de `--root`, si no de `SERRUGRAMS_ROOT`, si no del directorio actual. Requiere Node 24 (corre TypeScript nativo, sin build).
 
+Con el paquete npm instalado (o por `npx`), el equivalente es `serrugrams mcp --root /ruta/a/mis-diagramas`, que corre el servidor ya compilado. En la configuración de cualquier cliente: `"command": "npx", "args": ["-y", "serrugrams", "mcp", "--root", "/ABS/diagramas"]`.
+
 ## Herramientas
 
 | Tool | Qué hace |

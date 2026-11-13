@@ -8,5 +8,6 @@ export default defineConfig({
     strictPort: true,
     proxy: { "/api": { target: "http://127.0.0.1:4747", changeOrigin: false } },
   },
-  build: { chunkSizeWarningLimit: 4000 },
+  // dist/ui: la UI. El servidor compilado va a dist/server (tsconfig.build.json).
+  build: { outDir: "dist/ui", chunkSizeWarningLimit: 4000 },
 });
